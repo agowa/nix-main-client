@@ -4,7 +4,20 @@
 
 { config, lib, pkgs, ... }:
 
-{
+let
+  nixos-unstable = import <nixos-unstable> {
+    inherit (config.nixpkgs) config overlays localSystem crossSystem;
+  };
+  nixos-25-05 = import <nixos-25.05> {
+    inherit (config.nixpkgs) config overlays localSystem crossSystem;
+  };
+  nixos-25-11 = import <nixos-25.11> {
+    inherit (config.nixpkgs) config overlays localSystem crossSystem;
+  };
+
+  nixpkgs = nixos-25-05;
+  pkgs = nixpkgs.pkgs;
+in {
   imports =
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
@@ -582,7 +595,6 @@
 #      kdePackages.ffmpegthumbs
 #      kdePackages.bluedevil
       aria2
-#      biglybt  # currently using from unstable
       yt-dlp
       gparted
       vivaldi
@@ -624,6 +636,7 @@
       signal-desktop
       signal-cli
       qrencode
+#      nixos-unstable.biglybt
     ];
   };
 
@@ -913,7 +926,8 @@
   # and want to provoke an error showing the new hash value.
   # See https://github.com/NixOS/nix/issues/969 and
   # https://nixos.org/manual/nixpkgs/unstable/#opt-fetchedSourceNameDefault for why this is required.
-  nixpkgs.config.fetchedSourceNameDefault = "full";
+#  nixpkgs.config.fetchedSourceNameDefault = "full";
+  nixpkgs.config.fetchedSourceNameDefault = "versioned";
 
 #  nixpkgs.config.enableParallelBuildingByDefault = true;
 
