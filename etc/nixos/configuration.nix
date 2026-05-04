@@ -6,7 +6,7 @@
 
 let
   nixos-unstable = import <nixos-unstable> {
-    inherit (config.nixpkgs) config overlays localSystem crossSystem;
+    inherit (config.nixpkgs) config overlays localSystem crossSystem; 
   };
   nixos-25-05 = import <nixos-25.05> {
     inherit (config.nixpkgs) config overlays localSystem crossSystem;
@@ -15,13 +15,10 @@ let
     inherit (config.nixpkgs) config overlays localSystem crossSystem;
   };
 
-  nixpkgs = nixos-25-05;
-  pkgs = nixpkgs.pkgs;
 in {
   imports =
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
-#      ./unstable-packages.nix
     ];
 
   # Bootloader.
@@ -86,26 +83,37 @@ in {
     device = "/dev/disk/by-uuid/57e4edfa-54c0-4b4a-985a-adbe5fd6d497";
   };
   # See https://github.com/NixOS/nixpkgs/issues/459869
-#  environment.etc.crypttab = let disk = {
-#    name = "luks-397e963f-a0e3-4574-8935-3ae7b4492686";
-#    uuid = "d4801ecf-71b9-4bf5-b1c9-33bd10b3467f";
-#  }; in {
-#    text = ''
-#      ${disk.name} UUID=${disk.uuid} none luks,timeout=10s
-#    '';
-#  };
+  environment.etc.crypttab = let disk = {
+    # raid 5 data partition
+    # /dev/vg-019cf9c3-7ed8-70e1-bb36-35e054c42b12/lv-019cf9c3-7ed8-70e1-bb36-35e054c42b12-raid5
+    name = "luks-019cf9c3-7ed8-70e1-bb36-35e054c42b12";
+    uuid = "4f1280e8-83f9-4dad-911f-07bf124d5ef0";
+  }; in {
+    text = ''
+      ${disk.name} UUID=${disk.uuid} none luks,timeout=10s
+    '';
+  };
 ##  boot.initrd.luks.devices.luks-397e963f-a0e3-4574-8935-3ae7b4492686 = {
 ##    device = "/dev/disk/by-uuid/d4801ecf-71b9-4bf5-b1c9-33bd10b3467f"; # /dev/mapper/lvm_vg_3c494f77_8b5e_4d5b_bb75_628a703884a4-raid6Data001
 ##    allowDiscards = false; # LVM (dm_raid raid6 + dm_integrity) with spinny disks, so discards are kinda useless.
 ##    preLVM = false; # LUKS encrypted lvs aka. LUKS ontop of LVM
 ##  };
-#  fileSystems."/mnt/raid6Data001" = {
-#    device = "/dev/disk/by-uuid/0e86bd65-067a-4dd2-8846-5bdec5ed36ff"; # "/dev/disk/by-id/dm-uuid-CRYPT-LUKS2-d4801ecf71b94bf5b1c933bd10b3467f-luks-397e963f-a0e3-4574-8935-3ae7b4492686";
-#    fsType = "btrfs";
-#    options = [
-#      "nofail"
-#    ];
-#  };
+  fileSystems."/".options = [
+    "lazytime"
+    "strictatime"
+  ];
+  fileSystems."/mnt/vg-019cf9c3-7ed8-70e1-bb36-35e054c42b12/lv-019cf9c3-7ed8-70e1-bb36-35e054c42b12-raid5" = {
+    device = "/dev/disk/by-uuid/2df491cf-b27c-41cd-ad88-2aa2b25278ca";
+    fsType = "btrfs";
+    options = [
+      "nofail"
+      "lazytime"
+      "strictatime"
+      "nodev"
+      "noexec"
+      "nosuid"
+    ];
+  };
 
   # Use latest kernel.
   # Use "nix repl" > ":l <nixpkgs>" > "pkgs.linuxPackages" [press tab twice to show all linux Packages]
@@ -355,37 +363,37 @@ in {
   systemd.services.auditd.unitConfig = {
     RefuseManualStop = "no";
   };
-  systemd.automounts = [
-    {
-      enable = true;
-      name = "mnt-storage001.local.automount";
-      description = "Automount storage001.local";
-      where = "/mnt/storage001.local";
-      automountConfig = {
-        TimeoutIdleSec = 0;
-      };
-      wantedBy = [
-        "multi-user.target"
-      ];
-    }
-  ];
-  systemd.mounts = [
-    {
-      name = "mnt-storage001.local.mount";
-      wantedBy = [
-        "remote-fs.target"
-        "multi-user.target"
-      ];
-      before = [
-        "remote-fs.target"
-      ];
-      description = "Storage001 SSHFS";
-      what = "user@storage001.fritz.box:/mnt/data";
-      where = "/mnt/storage001.local";
-      type = "fuse." + pkgs.sshfs-fuse.meta.mainProgram;
-      options = "_netdev,rw,reconnect,port=2222,nosuid,allow_other,uid=" + (toString config.users.users.user.uid) +",gid=" + (toString config.users.groups.users.gid) + ",follow_symlinks,idmap=user,default_permissions,identityfile=/root/.ssh/user_storage001.local_automount_id_ed25519";
-    }
-  ];
+#  systemd.automounts = [
+#    {
+#      enable = true;
+#      name = "mnt-storage001.local.automount";
+#      description = "Automount storage001.local";
+#      where = "/mnt/storage001.local";
+#      automountConfig = {
+#        TimeoutIdleSec = 0;
+#      };
+#      wantedBy = [
+#        "multi-user.target"
+#      ];
+#    }
+#  ];
+#  systemd.mounts = [
+#    {
+#      name = "mnt-storage001.local.mount";
+#      wantedBy = [
+#        "remote-fs.target"
+#        "multi-user.target"
+#      ];
+#      before = [
+#        "remote-fs.target"
+#      ];
+#      description = "Storage001 SSHFS";
+#      what = "user@storage001.fritz.box:/mnt/data";
+#      where = "/mnt/storage001.local";
+#      type = "fuse." + pkgs.sshfs-fuse.meta.mainProgram;
+#      options = "_netdev,rw,reconnect,port=2222,nosuid,allow_other,uid=" + (toString config.users.users.user.uid) +",gid=" + (toString config.users.groups.users.gid) + ",follow_symlinks,idmap=user,default_permissions,identityfile=/root/.ssh/user_storage001.local_automount_id_ed25519";
+#    }
+#  ];
   systemd.services."user@".serviceConfig = {
     Delegate = "yes";
   };
@@ -433,8 +441,8 @@ in {
   services.switcherooControl.enable = true;
 
   # XBOX controller
-  hardware.xpadneo.enable = true;
-  hardware.xone.enable = true;
+#  hardware.xpadneo.enable = true;
+#  hardware.xone.enable = true;
 
   hardware.graphics = {
     enable = true;
@@ -443,7 +451,9 @@ in {
       intel-vaapi-driver # LIBVA_DRIVER_NAME=i965 (older but works better for Firefox/Chromium)
       intel-media-driver # LIBVA_DRIVER_NAME=iHD
       libvdpau-va-gl
+      libva-vdpau-driver
       mesa
+      intel-ocl
       vpl-gpu-rt
     ];
     extraPackages32 = with pkgs.pkgsi686Linux; [
@@ -476,15 +486,21 @@ in {
   };
 
   # Enable the KDE Plasma Desktop Environment.
+  #services.displayManager.gdm.enable = true;
+  #services.displayManager.gdm.wayland = true;
+  #services.displayManager.gdm.autoSuspend = false;
+  #services.desktopManager.gnome.enable = true;
+  #services.desktopManager.gnome.flashback.enableMetacity = true;
+
   services.displayManager.sddm.enable = true;
   services.displayManager.sddm.wayland.enable = true;
-  services.displayManager.sddm.wayland.compositor = "kwin"; # Default "weston"
+  services.displayManager.sddm.wayland.compositor="weston";
+  #services.displayManager.sddm.wayland.compositor = "kwin"; # Default "weston"
   services.displayManager.sddm.autoNumlock = true;
   services.desktopManager.plasma6.enable = true;
-#  services.xserver.enable = true;
+
   services.xserver.enable = false;
   programs.xwayland.enable = true;
-#  programs.xwayland.enable = false;
 
   # Configure keymap in X11
   services.xserver.xkb = {
@@ -513,6 +529,15 @@ in {
 
   # Enable touchpad support (enabled default in most desktopManager).
   services.libinput.enable = true;
+
+  # UniFi
+  services.unifi = {
+    enable = true;
+    openFirewall = true;
+    initialJavaHeapSize = 4096;
+    unifiPackage = nixos-unstable.pkgs.unifi; # nixos-25.11's unifi package is marked as insecure
+    jrePackage = pkgs.jdk25_headless;
+  };
 
   # Define a user account. Don't forget to set a password with ‘passwd’.
 #  users.mutableUsers = false; # Overwrite all changes to users from outside of the nix configuration. Including passwords.
@@ -547,6 +572,7 @@ in {
 #      config.services.kubo.group
       "libvirtd"
 #      config.systemd.sockets.podman.socketConfig.SocketGroup
+      "wireshark"
     ];
     uid = 1000;
     group = config.users.groups.users.name;
@@ -573,6 +599,8 @@ in {
     openssh.authorizedKeys.keys = [
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHodj/qhnLC0Mi30toyyP0U3NqGt5/UwhAOJl4fVORam"
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK+KT+HKGbv01SikaVhvk4ZG8B7e/igvlpKpsEqf90u5"
+      "ecdsa-sha2-nistp384 AAAAE2VjZHNhLXNoYTItbmlzdHAzODQAAAAIbmlzdHAzODQAAABhBGL5o6+ly03jlVmOeS3nhg54S/3+8oLYHdA3G9SueqZ7r29BaFgr/UY7S8oITdKld/ZStSqBzL2WWR+rTTEsq7RFScgtx7FT2OiCymednZbnf1aV6c921osLAi8ST8I7sQ==" # YubiKey with USB-A on Keychain
+#      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJd49OgA6nLFYiiPYsVtQpjeyrfRezZ1aI04NItkDJ+Z eddsa-key-20260403" # Fujitsu siemens mini pc
     ];
     packages = with pkgs; [
 #      kdePackages.kate
@@ -630,13 +658,17 @@ in {
       vlc
       wireshark
       pwgen
-      gupnp-tools
+      nixos-25-05.gupnp-tools
       nixpkgs-review
       filezilla
       signal-desktop
       signal-cli
       qrencode
-#      nixos-unstable.biglybt
+      devenv
+      dua # Filelight on the CLI
+      nixos-unstable.biglybt
+      httrack
+      rclone
     ];
   };
 
@@ -646,7 +678,7 @@ in {
   environment.systemPackages = with pkgs; [
     asciinema
     clamav
-    smartmontools
+    nixos-unstable.smartmontools
     libva-utils
     powershell
     usbutils
@@ -675,6 +707,13 @@ in {
     btrfs-progs
     openssl
     pkg-config
+    mt-st
+    mtx
+    lsscsi
+    efibootmgr
+    busybox #needed for e.g. "strings" command
+    mergerfs
+    mergerfs-tools
   ];
   environment.sessionVariables = {
     RUSTICL_FEATURES = "fp16,fp64";
@@ -894,6 +933,8 @@ in {
     ];
   };
 
+  programs.wireshark.enable = true;
+  programs.wireshark.dumpcap.enable = true;
 
   virtualisation.lxc.enable = true;
   virtualisation.lxc.unprivilegedContainers = true;
@@ -927,7 +968,7 @@ in {
   # See https://github.com/NixOS/nix/issues/969 and
   # https://nixos.org/manual/nixpkgs/unstable/#opt-fetchedSourceNameDefault for why this is required.
 #  nixpkgs.config.fetchedSourceNameDefault = "full";
-  nixpkgs.config.fetchedSourceNameDefault = "versioned";
+#  nixpkgs.config.fetchedSourceNameDefault = "versioned";
 
 #  nixpkgs.config.enableParallelBuildingByDefault = true;
 
@@ -1018,6 +1059,12 @@ in {
     enable = true;
     capacity = 10;
   };
+  services.octoprint = {
+    enable = true;
+    openFirewall = true;
+    host = "::";
+    port = 5000;
+  };
 #  services.home-assistant = {
 #    enable = true;
 #    openFirewall = true;
@@ -1046,10 +1093,22 @@ in {
 #    };
 #  };
 
-#  services.btrfs.autoScrub = {
-#    enable = true;
-#    interval = "monthly";
-#  };
+  services.btrfs.autoScrub = {
+    enable = true;
+    interval = "monthly";
+  };
+  services.beesd.filesystems = {
+    "2df491cf-b27c-41cd-ad88-2aa2b25278ca" = {
+      spec = "UUID=2df491cf-b27c-41cd-ad88-2aa2b25278ca";
+      hashTableSizeMB = 294912; # Volume size * 4 / 1024 then convert into MB, rounded up to next value divisible by 16
+      verbosity = "crit";
+      extraOptions = [
+        "--loadavg-target"
+        #"5.0"
+        "192.0"
+      ];
+    };
+  };
 #  services.beesd.filesystems = {
 #    "-" = {
 #      spec = "LABEL=root";
@@ -1114,10 +1173,18 @@ in {
   system.stateVersion = "25.05"; # Did you read the comment?
 
   # system.autoUpgrade.channel = "https://nixos.org/channels/nixos-unstable";
-  system.autoUpgrade.channel = "https://nixos.org/channels/nixos-25.11";
-  system.autoUpgrade.enable = true; # periodically runs "nixos-rebuild switch --upgrade"
+  system.autoUpgrade = {
+    enable = true; # periodically runs "nixos-rebuild switch --upgrade"
+    channel = "https://nixos.org/channels/nixos-${config.system.nixos.release}";
+  };
   nix.gc.automatic = true;
   nix.gc.options = "--delete-older-than 30d";
   nix.gc.dates = "weekly";
   nix.optimise.automatic = true;
+  programs.nix-index = {
+    enable = true;
+    enableBashIntegration = false;
+    enableZshIntegration = false;
+    enableFishIntegration = false;
+  };
 }
