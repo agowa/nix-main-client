@@ -361,9 +361,9 @@ in {
 #'';
 
   systemd.coredump.enable = false;
-  systemd.services.auditd.unitConfig = {
-    RefuseManualStop = "no";
-  };
+#  systemd.services.auditd.unitConfig = {
+#    RefuseManualStop = "no";
+#  };
 #  systemd.automounts = [
 #    {
 #      enable = true;
