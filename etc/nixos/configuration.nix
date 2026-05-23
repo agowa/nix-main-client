@@ -827,17 +827,17 @@ in {
   programs.thunderbird.enable = true;
   programs.chromium.enable = true;
   programs.steam.enable = true;
-#  programs.steam.protontricks.enable = true;
+  programs.steam.protontricks.enable = true;
   programs.steam.localNetworkGameTransfers.openFirewall = true;
-  programs.steam.extest.enable = false;
+  programs.steam.extest.enable = true; # For Steam inputs on Wayland
 #  programs.steam.extraCompatPackages = with pkgs; [
 #    proton-ge-bin
 #  ];
   programs.steam.package = pkgs.steam.override {
     extraEnv = {
 #      MANGOHUD = true;
-#      OBS_VKCAPTURE = true;
-#      RADV_TEX_ANISO = 16;
+      OBS_VKCAPTURE = true;
+      RADV_TEX_ANISO = 16;
       VK_ICD_FILENAMES = pkgs.driversi686Linux.mesa.outPath + "/share/vulkan/icd.d/intel_icd.i686.json" + ":" + pkgs.mesa.outPath + "/share/vulkan/icd.d/intel_icd.x86_64.json";
     };
     extraLibraries = p: with p; [
@@ -851,12 +851,14 @@ in {
 #      mangohud
 #      vkd3d-proton
       mesa
-      intel-vaapi-driver
+      intel-vaapi-driver #.override { enableHybridCodec = true; }
+      intel-media-driver
       libva-vdpau-driver
       libvdpau-va-gl
       vdpauinfo
       driversi686Linux.mesa
-      driversi686Linux.intel-vaapi-driver
+      driversi686Linux.intel-vaapi-driver #.override { enableHybridCodec = true; }
+      driversi686Linux.intel-media-driver
       driversi686Linux.libva-vdpau-driver
       driversi686Linux.libvdpau-va-gl
       driversi686Linux.vdpauinfo
