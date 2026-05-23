@@ -721,6 +721,7 @@ in {
     busybox #needed for e.g. "strings" command
     mergerfs
     mergerfs-tools
+    virtiofsd # libvirtd/kvm
 
     thin-provisioning-tools # trying to mount a LVM volume with a dm-cache throws a warning of missing the cache_check binary.
     # /usr/sbin/cache_check: execvp failed: No such file or directory
@@ -960,6 +961,9 @@ in {
   virtualisation.libvirtd.enable = true;
   virtualisation.libvirtd.qemu.package = pkgs.qemu_full;
   virtualisation.libvirtd.qemu.swtpm.enable = true;
+  virtualisation.libvirtd.qemu.vhostUserPackages = [
+    pkgs.virtiofsd
+  ];
 #  virtualisation.libvirtd.qemu.ovmf.packages = [
 #    pkgs.OVMFFull.fd
 #    pkgs.pkgsCross.aarch64-multiplatform.OVMF.fd
