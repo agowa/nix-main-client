@@ -721,6 +721,10 @@ in {
     busybox #needed for e.g. "strings" command
     mergerfs
     mergerfs-tools
+
+    thin-provisioning-tools # trying to mount a LVM volume with a dm-cache throws a warning of missing the cache_check binary.
+    # /usr/sbin/cache_check: execvp failed: No such file or directory
+    # WARNING: Check is skipped, please install recommended missing binary /usr/sbin/cache_check!
   ];
   environment.sessionVariables = {
     RUSTICL_FEATURES = "fp16,fp64";
