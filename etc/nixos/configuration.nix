@@ -52,6 +52,7 @@ in {
   # load in 2nd stage after root file system has been mounted.
   boot.kernelModules = [
     "dm_log"
+    "dm_cache"
     "dm_raid"
     "dm_integrity"
     "dm_snapshot"
@@ -397,6 +398,13 @@ in {
   systemd.services."user@".serviceConfig = {
     Delegate = "yes";
   };
+
+  systemd.services."beesd@2df491cf-b27c-41cd-ad88-2aa2b25278ca".after = [
+    "dev-disk-by\\x2duuid-2df491cf\\x2db27c\\x2d41cd\\x2dad88\\x2d2aa2b25278ca.device"
+  ];
+  systemd.services."beesd@2df491cf-b27c-41cd-ad88-2aa2b25278ca".bindsTo = [
+    "dev-disk-by\\x2duuid-2df491cf\\x2db27c\\x2d41cd\\x2dad88\\x2d2aa2b25278ca.device"
+  ];
 
   system.nssDatabases.hosts = lib.mkForce [
     "mymachines"
