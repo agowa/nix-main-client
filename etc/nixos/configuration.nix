@@ -685,7 +685,6 @@ in {
   # $ nix search wget
   environment.systemPackages = with pkgs; [
     asciinema
-    clamav
     nixos-unstable.smartmontools
     libva-utils
     powershell
@@ -981,8 +980,6 @@ in {
 #  nixpkgs.config.enableParallelBuildingByDefault = true;
 
   # List services that you want to enable:
-  services.clamav.daemon.enable = false;
-  services.clamav.updater.enable = true;
   services.fwupd.enable = true;
   services.languagetool.enable = true;
   services.openssh = {
