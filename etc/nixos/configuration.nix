@@ -67,6 +67,8 @@ in {
     "crc23"
     "crc32c"
   ];
+  boot.initrd.services.lvm.enable = true; # required for cache_check binary to be placed at correct location for mounting of LVM volumes with an attached cache volume.
+  services.lvm.boot.thin.enable = true; # required for chache_check binary too.
   services.lvm.dmeventd.enable = true;
 #  services.multipath.enable = true;
 
