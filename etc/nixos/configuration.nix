@@ -830,9 +830,9 @@ in {
   programs.steam.protontricks.enable = true;
   programs.steam.localNetworkGameTransfers.openFirewall = true;
   programs.steam.extest.enable = true; # For Steam inputs on Wayland
-#  programs.steam.extraCompatPackages = with pkgs; [
-#    proton-ge-bin
-#  ];
+  programs.steam.extraCompatPackages = with pkgs; [
+    proton-ge-bin
+  ];
   programs.steam.package = pkgs.steam.override {
     extraEnv = {
 #      MANGOHUD = true;
