@@ -1144,6 +1144,9 @@ in {
 #  services.miniupnpd.externalInterface = "vlan10";
 #  services.miniupnpd.natpmp = true;
 #  services.miniupnpd.upnp = true;
+  networking.firewall.allowedUDPPortRanges = [
+    config.services.aria2.settings.listen-port
+  ];
   networking.firewall.allowedUDPPorts = [
     config.services.i2pd.port
 #    5353 # mDNS
