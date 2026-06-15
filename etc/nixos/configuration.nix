@@ -52,10 +52,14 @@ in {
     "bgrt_disable" # Don't display OEM logo after loading ACPI tables
   ];
 
-  # load in 2nd stage after root file system has been mounted.
-  boot.kernelModules = [
+  # load in 1st stage before root file system has been mounted.
+  boot.initrd.kernelModules = [
+    "nvme"
+    "mpt3sas"
     "dm_log"
     "dm_cache"
+    "dm_cache_smq"
+    "dm_thin_pool"
     "dm_raid"
     "dm_integrity"
     "dm_snapshot"
@@ -66,10 +70,68 @@ in {
     "sha256"
     "sha512"
     "sha3"
-    "blake2b_generic"
-    "crc23"
+    "blake2b"
+    "crc32"
     "crc32c"
+
+    "btrfs"
+    "loop"
+    "v4l2loopback"
+#    "xe"
+    "mtd_intel_dg"
+#    "snd_hda_intel"
+#    "drm"
+#    "i915"
+    "efi_pstore"
+    "configfs"
+    "amd64_edac"
+    "sr_mod"
+    "igb"
+    "btusb"
   ];
+
+  # load in 2nd stage after root file system has been mounted.
+  boot.kernelModules = [
+    "nvme"
+    "mpt3sas"
+    "dm_log"
+    "dm_cache"
+    "dm_cache_smq"
+    "dm_thin_pool"
+    "dm_raid"
+    "dm_integrity"
+    "dm_snapshot"
+
+    # These are reported as "builtin", however btrfs documentation states:
+    # > Many kernels are configured with SHA256 as built-in and not as a module. The accelerated versions are however provided by the modules and must be loaded explicitly (modprobe sha256) before mounting the filesystem to make use of them. You can check in /sys/fs/btrfs/FSID/checksum which one is used. If you see sha256-generic, then you may want to unmount and mount the filesystem again.
+    # Therefore listing these here explicitly just in case.
+    "sha256"
+    "sha512"
+    "sha3"
+    "blake2b"
+    "crc32"
+    "crc32c"
+
+    "btrfs"
+    "loop"
+    "v4l2loopback"
+#    "xe"
+    "mtd_intel_dg"
+#    "snd_hda_intel"
+#    "drm"
+#    "i915"
+    "efi_pstore"
+    "configfs"
+    "amd64_edac"
+    "sr_mod"
+    "igb"
+    "btusb"
+  ];
+
+  boot.blacklistedKernelModules = [
+    "ast"
+  ];
+
   boot.initrd.services.lvm.enable = true; # required for cache_check binary to be placed at correct location for mounting of LVM volumes with an attached cache volume.
   services.lvm.boot.thin.enable = true; # required for chache_check binary too.
   services.lvm.dmeventd.enable = true;
@@ -81,6 +143,7 @@ in {
     # System partition
     allowDiscards = true;
     bypassWorkqueues = true;
+    device = "/dev/disk/by-uuid/308704a3-5f1f-4cac-99ba-45d040ec57b9";
   };
   boot.initrd.luks.devices.luks-57e4edfa-54c0-4b4a-985a-adbe5fd6d497 = {
     # swap
@@ -99,17 +162,31 @@ in {
       ${disk.name} UUID=${disk.uuid} none luks,timeout=10s
     '';
   };
-##  boot.initrd.luks.devices.luks-397e963f-a0e3-4574-8935-3ae7b4492686 = {
-##    device = "/dev/disk/by-uuid/d4801ecf-71b9-4bf5-b1c9-33bd10b3467f"; # /dev/mapper/lvm_vg_3c494f77_8b5e_4d5b_bb75_628a703884a4-raid6Data001
-##    allowDiscards = false; # LVM (dm_raid raid6 + dm_integrity) with spinny disks, so discards are kinda useless.
-##    preLVM = false; # LUKS encrypted lvs aka. LUKS ontop of LVM
-##  };
+
   fileSystems."/".options = [
     "lazytime"
     "strictatime"
   ];
+  fileSystems."/mnt/FA380FB6380F7145" = {
+    device = "/dev/disk/by-uuid/FA380FB6380F7145";
+    fsType = "ntfs-3g";
+    options = [
+      "nofail"
+      "lazytime"
+      "strictatime"
+      "nodev"
+      "nosuid"
+      ("uid=" + (toString config.users.users.user.uid))
+      ("gid=" + (toString config.users.groups.users.gid))
+    ];
+  };
   fileSystems."/mnt/vg-019cf9c3-7ed8-70e1-bb36-35e054c42b12/lv-019cf9c3-7ed8-70e1-bb36-35e054c42b12-raid5" = {
     device = "/dev/disk/by-uuid/2df491cf-b27c-41cd-ad88-2aa2b25278ca";
+    encrypted = {
+      blkDev = "/dev/disk/by-uuid/4f1280e8-83f9-4dad-911f-07bf124d5ef0";
+      enable = true;
+      label = "luks-019cf9c3-7ed8-70e1-bb36-35e054c42b12";
+    };
     fsType = "btrfs";
     options = [
       "nofail"
@@ -409,12 +486,7 @@ in {
     Delegate = "yes";
   };
 
-  systemd.services."beesd@2df491cf-b27c-41cd-ad88-2aa2b25278ca".after = [
-    "dev-disk-by\\x2duuid-2df491cf\\x2db27c\\x2d41cd\\x2dad88\\x2d2aa2b25278ca.device"
-  ];
-  systemd.services."beesd@2df491cf-b27c-41cd-ad88-2aa2b25278ca".bindsTo = [
-    "dev-disk-by\\x2duuid-2df491cf\\x2db27c\\x2d41cd\\x2dad88\\x2d2aa2b25278ca.device"
-  ];
+  systemd.services."systemd-user-sessions".after = lib.mkForce [];
 
   system.nssDatabases.hosts = lib.mkForce [
     "mymachines"
@@ -550,7 +622,7 @@ in {
 
   # UniFi
   services.unifi = {
-    enable = true;
+    enable = false;
     openFirewall = true;
     initialJavaHeapSize = 4096;
     unifiPackage = nixos-unstable.pkgs.unifi; # nixos-25.11's unifi package is marked as insecure
