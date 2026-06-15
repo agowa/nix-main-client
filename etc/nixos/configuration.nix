@@ -32,8 +32,8 @@ in {
   boot.kernel.sysctl."vm.max_map_count" = 2147483647;
   boot.kernel.sysctl."vm.swappiness" = 100;
   # Hugepages
-  #boot.kernel.sysctl."vm.nr_hugepages" = 3072; # 6 GB
-  boot.kernel.sysctl."vm.nr_hugepages" = 51200; # 100 GB
+  boot.kernel.sysctl."vm.nr_hugepages" = 3072; # 6 GB
+  #boot.kernel.sysctl."vm.nr_hugepages" = 51200; # 100 GB
   #boot.kernel.sysctl."vm.nr_hugepages" = 102400; # 200 GB
 
   boot.kernelParams = [
