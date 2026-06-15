@@ -14,6 +14,9 @@ let
   nixos-25-11 = import <nixos-25.11> {
     inherit (config.nixpkgs) config overlays localSystem crossSystem;
   };
+  nixos-26-05 = import <nixos-26.05> {
+    inherit (config.nixpkgs) config overlays localSystem crossSystem;
+  };
 
 in {
   imports =
@@ -351,10 +354,15 @@ in {
 
   services.resolved = {
     enable = true;
-    llmnr = "false";
-    dnssec = "false";
-    dnsovertls = "opportunistic";
-    extraConfig = "MulticastDNS=true\nCache=true\nDNSStubListener=true\nReadEtcHosts=true";
+    settings.Resolve = {
+      DNSSEC = false;
+      DNSOverTLS = "opportunistic";
+      LLMNR = false;
+      MulticastDNS = true;
+      Cache = true;
+      DNSStubListener = true;
+      ReadEtcHosts = true;
+    };
   };
 
 #  xdg.configFile."systemd/system/auditd.service.d/overrides.conf".text = ''
@@ -637,7 +645,7 @@ in {
       gparted
       vivaldi
       vivaldi-ffmpeg-codecs
-      lutris
+      nixos-25-11.lutris
       wget
       wget2
       lgogdownloader
@@ -693,7 +701,7 @@ in {
     usbutils
     pciutils
     winetricks
-    wineWowPackages.waylandFull
+    wineWow64Packages.waylandFull
     (ffmpeg-full.override { withUnfree = true; })
     fwupd
     htop
