@@ -1194,18 +1194,19 @@ in {
     enable = true;
     interval = "monthly";
   };
-  services.beesd.filesystems = {
-    "2df491cf-b27c-41cd-ad88-2aa2b25278ca" = {
-      spec = "UUID=2df491cf-b27c-41cd-ad88-2aa2b25278ca";
-      hashTableSizeMB = 294912; # Volume size * 4 / 1024 then convert into MB, rounded up to next value divisible by 16
-      verbosity = "crit";
-      extraOptions = [
-        "--loadavg-target"
-        #"5.0"
-        "192.0"
-      ];
-    };
-  };
+#  services.beesd.filesystems = {
+#    "2df491cf-b27c-41cd-ad88-2aa2b25278ca" = {
+#      spec = "UUID=2df491cf-b27c-41cd-ad88-2aa2b25278ca";
+#      hashTableSizeMB = 294912; # Volume size * 4 / 1024 then convert into MB, rounded up to next value divisible by 16
+#      verbosity = "crit";
+#      extraOptions = [
+#        "--loadavg-target"
+#        #"5.0"
+#        "192.0"
+#      ];
+#    };
+#  };
+
 #  services.beesd.filesystems = {
 #    "-" = {
 #      spec = "LABEL=root";
