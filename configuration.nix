@@ -2,21 +2,13 @@
 # your system.  Help is available in the configuration.nix(5) man page
 # and in the NixOS manual (accessible by running ‘nixos-help’).
 
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, inputs, ... }:
 
 let
-  nixos-unstable = import <nixos-unstable> {
-    inherit (config.nixpkgs) config overlays localSystem crossSystem;
-  };
-  nixos-25-05 = import <nixos-25.05> {
-    inherit (config.nixpkgs) config overlays localSystem crossSystem;
-  };
-  nixos-25-11 = import <nixos-25.11> {
-    inherit (config.nixpkgs) config overlays localSystem crossSystem;
-  };
-  nixos-26-05 = import <nixos-26.05> {
-    inherit (config.nixpkgs) config overlays localSystem crossSystem;
-  };
+  nixos-25-05 = inputs.nixos-25-05.outputs.legacyPackages.${pkgs.stdenv.hostPlatform.system};
+  nixos-25-11 = inputs.nixos-25-11.outputs.legacyPackages.${pkgs.stdenv.hostPlatform.system};
+  nixos-26-05 = inputs.nixos-26-05.outputs.legacyPackages.${pkgs.stdenv.hostPlatform.system};
+  nixos-unstable = inputs.nixos-unstable.outputs.legacyPackages.${pkgs.stdenv.hostPlatform.system};
 
 in {
   imports =
@@ -1295,6 +1287,7 @@ in {
   nix.gc.options = "--delete-older-than 30d";
   nix.gc.dates = "weekly";
   nix.optimise.automatic = true;
+  nix.settings.experimental-features = ["nix-command flakes"];
   programs.nix-index = {
     enable = true;
     enableBashIntegration = false;
