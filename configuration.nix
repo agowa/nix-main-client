@@ -868,40 +868,19 @@ in {
     ServerAliveInterval 11
     HashKnownHosts no
 
-    Host storage001.local
-      HostName storage001.local
-      Port 2222
-      User user
-
-    Host user@storage001.local
-      HostName storage001.local
-      Port 2222
-      User user
-
-    Host storage001-kvm.local
-      HostName storage001-kvm.local
-      Port 2222
-      User root
-
-    Host mx01.frank.fyi
-      HostName mx01.frank.fyi
-      Port 2222
-      User root
-
-    Host mx02.frank.fyi
-      HostName mx02.frank.fyi
-      Port 2222
-      User root
-
-    Host vm001.prod.agowa338.de
-      HostName vm001.prod.agowa338.de
-      Port 2222
-      User root
+    Host github.com
+      HostName github.com
+      Port 22
+      User git
 
     Host git@gitlab.agowa338.de
       HostName gitlab.agowa338.de
       IdentityFile ~/.ssh/id_ed25519
       User git
+
+    Host *
+      Port 2222
+      User root
 
   ";
   programs.kdeconnect.enable = false;
