@@ -6,7 +6,7 @@
 
 let
   nixos-unstable = import <nixos-unstable> {
-    inherit (config.nixpkgs) config overlays localSystem crossSystem; 
+    inherit (config.nixpkgs) config overlays localSystem crossSystem;
   };
   nixos-25-05 = import <nixos-25.05> {
     inherit (config.nixpkgs) config overlays localSystem crossSystem;
@@ -756,7 +756,7 @@ in {
       qrencode
       devenv
       dua # Filelight on the CLI
-      nixos-unstable.biglybt
+      biglybt # nixos-unstable.biglybt
       httrack
       rclone
     ];
@@ -767,7 +767,7 @@ in {
   # $ nix search wget
   environment.systemPackages = with pkgs; [
     asciinema
-    nixos-unstable.smartmontools
+    smartmontools # nixos-unstable.smartmontools
     libva-utils
     powershell
     usbutils
@@ -808,6 +808,9 @@ in {
     thin-provisioning-tools # trying to mount a LVM volume with a dm-cache throws a warning of missing the cache_check binary.
     # /usr/sbin/cache_check: execvp failed: No such file or directory
     # WARNING: Check is skipped, please install recommended missing binary /usr/sbin/cache_check!
+    ptouch-driver
+    ptouch-print
+    foomatic-db-ppds-withNonfreeDb
   ];
   environment.sessionVariables = {
     RUSTICL_FEATURES = "fp16,fp64";
@@ -1161,6 +1164,37 @@ in {
     openFirewall = true;
     host = "::";
     port = 5000;
+  };
+  services.jellyfin = {
+    enable = false;
+    hardwareAcceleration = {
+      device = "/dev/dri/renderD128";
+      enable = true;
+      type = "qsv";
+    };
+    openFirewall = true;
+    forceEncodingConfig = true;
+    transcoding = {
+      enableHardwareEncoding = true;
+      enableIntelLowPowerEncoding = true;
+      hardwareDecodingCodecs = {
+        av1 = true;
+        h264 = true;
+        #mpeg2 = true;
+        hevc = true;
+        hevc10bit = true;
+        hevcRExt10bit = true;
+        hevcRExt12bit = true;
+        mpeg2 = true;
+        vc1 = true;
+        vp8 = true;
+        vp9 = true;
+      };
+      hardwareEncodingCodecs = {
+        av1 = true;
+        hevc = true;
+      };
+    };
   };
 #  services.home-assistant = {
 #    enable = true;
