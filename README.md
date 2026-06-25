@@ -1,4 +1,4 @@
 # nix-main-client
 
-This repository contains the nix configuration for one of my main clients.
+This repository contains the nix configuration for my main clients (testing status right now).
 
