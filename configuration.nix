@@ -5,10 +5,11 @@
 { config, lib, pkgs, inputs, ... }:
 
 let
-  nixos-25-05 = inputs.nixos-25-05.outputs.legacyPackages.${pkgs.stdenv.hostPlatform.system};
-  nixos-25-11 = inputs.nixos-25-11.outputs.legacyPackages.${pkgs.stdenv.hostPlatform.system};
-  nixos-26-05 = inputs.nixos-26-05.outputs.legacyPackages.${pkgs.stdenv.hostPlatform.system};
-  nixos-unstable = inputs.nixos-unstable.outputs.legacyPackages.${pkgs.stdenv.hostPlatform.system};
+  opts = { system = "x86_64-linux"; config = { allowUnfree = true; }; };
+  nixos-25-05 = import inputs.nixos-25-05 opts;
+  nixos-25-11 = import inputs.nixos-25-11 opts;
+  nixos-26-05 = import inputs.nixos-26-05 opts; # unused
+  nixos-unstable = import inputs.nixos-unstable opts;
 
 in {
   imports =
