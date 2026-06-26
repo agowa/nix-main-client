@@ -5,7 +5,7 @@
 { config, lib, pkgs, inputs, ... }:
 
 let
-  opts = { system = "x86_64-linux"; config = { allowUnfree = true; }; };
+  opts = { system = pkgs.stdenv.hostPlatform.system; config = { allowUnfree = true; }; };
   nixos-25-05 = import inputs.nixos-25-05 opts;
   nixos-25-11 = import inputs.nixos-25-11 opts;
   nixos-26-05 = import inputs.nixos-26-05 opts; # unused
