@@ -804,6 +804,7 @@ in {
     ptouch-driver
     ptouch-print
     foomatic-db-ppds-withNonfreeDb
+    bees
   ];
   environment.sessionVariables = {
     RUSTICL_FEATURES = "fp16,fp64";
@@ -1232,8 +1233,7 @@ in {
 #  services.miniupnpd.natpmp = true;
 #  services.miniupnpd.upnp = true;
   networking.firewall.allowedUDPPortRanges = [
-    config.services.aria2.settings.listen-port
-  ];
+  ] ++ config.services.aria2.settings.listen-port;
   networking.firewall.allowedUDPPorts = [
     config.services.i2pd.port
 #    5353 # mDNS
@@ -1257,7 +1257,7 @@ in {
     7000
     # </BiglyBT>
   ];
-  networking.firewall.enable = false;
+  networking.firewall.enable = true;
   networking.firewall.logRefusedPackets = true;
   networking.firewall.logRefusedUnicastsOnly = false;
   networking.firewall.logReversePathDrops = false;
