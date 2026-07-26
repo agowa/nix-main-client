@@ -186,7 +186,6 @@ in {
       "lazytime"
       "strictatime"
       "nodev"
-      "noexec"
       "nosuid"
     ];
   };
