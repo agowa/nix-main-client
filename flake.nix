@@ -3,9 +3,10 @@
 
   inputs = {
     nixpkgs.url = "path:./nixpkgs/nixos-26.05";
-    nixos-25-05.url = "path:./nixpkgs/nixos-25.05";
-    nixos-25-11.url = "path:./nixpkgs/nixos-25.11";
-    nixos-26-05.url = "path:./nixpkgs/nixos-26.05";
+    # nixos-25-05.url = "path:./nixpkgs/nixos-25.05"; # unused
+    # nixos-25-11.url = "path:./nixpkgs/nixos-25.11"; # unused
+    # nixos-26-05.url = "path:./nixpkgs/nixos-26.05"; # unused
+    nixos-unstable.url = "path:./nixpkgs/nixos-unstable";
 
     self.submodules = true;
     self.lfs = true;

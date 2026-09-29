@@ -1,11 +1,3 @@
-[submodule "etc/nixos/nixpkgs/nixos-25.05"]
-	path = nixpkgs/nixos-25.05
-	url = ../nixpkgs
-	branch = nixos-25.05
-[submodule "etc/nixos/nixpkgs/nixos-25.11"]
-	path = nixpkgs/nixos-25.11
-	url = ../nixpkgs
-	branch = nixos-25.11
 [submodule "etc/nixos/nixpkgs/nixos-26.05"]
 	path = nixpkgs/nixos-26.05
 	url = ../nixpkgs
@@ -14,7 +6,3 @@
 	path = nixpkgs/nixos-unstable
 	url = ../nixpkgs
 	branch = nixos-unstable
-[submodule "etc/nixos/nixpkgs/master"]
-	path = nixpkgs/master
-	url = ../nixpkgs
-	branch = master

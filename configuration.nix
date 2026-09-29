@@ -6,9 +6,9 @@
 
 let
   opts = { system = pkgs.stdenv.hostPlatform.system; config = { allowUnfree = true; }; };
-  nixos-25-05 = import inputs.nixos-25-05 opts;
-  nixos-25-11 = import inputs.nixos-25-11 opts;
-  nixos-26-05 = import inputs.nixos-26-05 opts; # unused
+  # nixos-25-05 = import inputs.nixos-25-05 opts; # unused
+  # nixos-25-11 = import inputs.nixos-25-11 opts; # unused
+  # nixos-26-05 = import inputs.nixos-26-05 opts; # unused
   nixos-unstable = import inputs.nixos-unstable opts;
 
 in {
@@ -709,7 +709,7 @@ in {
       gparted
       vivaldi
       vivaldi-ffmpeg-codecs
-      nixos-25-11.lutris
+      lutris
       wget
       wget2
       lgogdownloader
@@ -740,7 +740,7 @@ in {
       vlc
       wireshark
       pwgen
-      nixos-25-05.gupnp-tools
+      gupnp-tools
       nixpkgs-review
       filezilla
       signal-desktop
@@ -800,10 +800,8 @@ in {
     thin-provisioning-tools # trying to mount a LVM volume with a dm-cache throws a warning of missing the cache_check binary.
     # /usr/sbin/cache_check: execvp failed: No such file or directory
     # WARNING: Check is skipped, please install recommended missing binary /usr/sbin/cache_check!
-    ptouch-driver
-    ptouch-print
-    foomatic-db-ppds-withNonfreeDb
     bees
+    p7zip
   ];
   environment.sessionVariables = {
     RUSTICL_FEATURES = "fp16,fp64";
@@ -1247,6 +1245,7 @@ in {
     # </BiglyBT>
   ];
   networking.firewall.allowedTCPPorts = [
+    config.services.i2pd.port
     # <BiglyBT>
     27151
     8080
