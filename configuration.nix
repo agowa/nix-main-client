@@ -751,6 +751,21 @@ in {
       biglybt # nixos-unstable.biglybt
       httrack
       rclone
+      element-desktop
+      (pkgs.symlinkJoin {
+        name = "lmstudio-with-mcp";
+        paths = [ pkgs.lmstudio ];
+        nativeBuildInputs = [ pkgs.makeWrapper ];
+        postBuild = ''
+          wrapProgram $out/bin/lm-studio \
+            --prefix PATH : ${pkgs.lib.makeBinPath [
+              pkgs.uv
+              (pkgs.python3.withPackages (ps: [
+                ps.fastmcp
+              ]))
+            ]}
+        '';
+      })
     ];
   };
 
