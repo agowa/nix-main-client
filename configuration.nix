@@ -1090,7 +1090,7 @@ in {
 #  websocket.enable = true;
     upnp.enable = true;
     reseed.verify = false;
-    reseed.file = "/etc/nixos/i2pseeds.su3"; # wget --user-agent="Wget/1.11.4" https://reseed.stormycloud.org/i2pseeds.su3
+    reseed.file = "./i2pseeds.su3"; # wget --user-agent="Wget/1.11.4" https://reseed.stormycloud.org/i2pseeds.su3
     proto.socksProxy.enable = true;
     proto.i2cp.enable = true;
     proto.i2pControl.enable = true;
