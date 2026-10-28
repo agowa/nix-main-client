@@ -19,6 +19,7 @@ in {
       ./modules/filesystems.nix
       ./modules/hardware.nix
       ./modules/i18n.nix
+      ./modules/desktop.nix
     ];
 
   # Enable networking
@@ -321,51 +322,6 @@ in {
   # Or disable the firewall altogether.
   # networking.firewall.enable = false;
 
-  # Enable the KDE Plasma Desktop Environment.
-  #services.displayManager.gdm.enable = true;
-  #services.displayManager.gdm.wayland = true;
-  #services.displayManager.gdm.autoSuspend = false;
-  #services.desktopManager.gnome.enable = true;
-  #services.desktopManager.gnome.flashback.enableMetacity = true;
-
-  services.displayManager.sddm.enable = true;
-  services.displayManager.sddm.wayland.enable = true;
-  services.displayManager.sddm.wayland.compositor="weston";
-  #services.displayManager.sddm.wayland.compositor = "kwin"; # Default "weston"
-  services.displayManager.sddm.autoNumlock = true;
-  services.desktopManager.plasma6.enable = true;
-
-  services.xserver.enable = false;
-  programs.xwayland.enable = true;
-
-  # Configure keymap in X11
-  services.xserver.xkb = {
-    layout = "us";
-    variant = "";
-  };
-
-  # Enable CUPS to print documents.
-  services.printing.enable = true;
-
-  # Enable sound with pipewire.
-  services.pulseaudio.enable = false;
-  security.rtkit.enable = true;
-  services.pipewire = {
-    enable = true;
-    alsa.enable = true;
-    alsa.support32Bit = true;
-    pulse.enable = true;
-    # If you want to use JACK applications, uncomment this
-    #jack.enable = true;
-
-    # use the example session manager (no others are packaged yet so this is enabled by default,
-    # no need to redefine it in your config for now)
-    #media-session.enable = true;
-  };
-
-  # Enable touchpad support (enabled default in most desktopManager).
-  services.libinput.enable = true;
-
   # UniFi
   services.unifi = {
     enable = false;
@@ -505,7 +461,15 @@ in {
       biglybt # nixos-unstable.biglybt
       httrack
       rclone
+      monero-gui
       element-desktop
+
+#      (pkgs.lmstudio.overrideAttrs (old: {
+#        propagatedBuildInputs = (old.propagatedBuildInputs or []) ++ [
+#          pkgs.uv
+#          pkgs.python3Packages.fastmcp
+#        ];
+#      }))
       (pkgs.symlinkJoin {
         name = "lmstudio-with-mcp";
         paths = [ pkgs.lmstudio ];
@@ -935,6 +899,10 @@ in {
       };
     };
   };
+  services.monero = {
+    enable = true;
+    dataDir = "/mnt/vg-019cf9c3-7ed8-70e1-bb36-35e054c42b12/lv-019cf9c3-7ed8-70e1-bb36-35e054c42b12-raid5/storage001.local/blockchain/bitmonero";
+  };
 #  services.home-assistant = {
 #    enable = true;
 #    openFirewall = true;
@@ -1015,6 +983,7 @@ in {
   ];
   networking.firewall.allowedTCPPorts = [
     config.services.i2pd.port
+    18080 # monerod
     # <BiglyBT>
     27151
     8080
@@ -1063,3 +1032,4 @@ in {
     enableFishIntegration = false;
   };
 }
+
