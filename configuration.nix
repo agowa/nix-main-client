@@ -23,6 +23,7 @@ in {
       ./modules/users.nix
       ./modules/environment.nix
       ./modules/networking.nix
+      ./modules/firewall.nix
     ];
 
 #  xdg.configFile."systemd/system/auditd.service.d/overrides.conf".text = ''
@@ -81,12 +82,6 @@ in {
   ];
 
   xdg.portal.xdgOpenUsePortal = true; # Sets environment variable NIXOS_XDG_OPEN_USE_PORTAL to 1 This will make xdg-open use the portal to open programs, which resolves bugs involving programs opening inside FHS envs or with unexpected env vars set from wrappers. See https://github.com/NixOS/nixpkgs/issues/160923 for more info.
-
-  # Open ports in the firewall.
-  # networking.firewall.allowedTCPPorts = [ ... ];
-  # networking.firewall.allowedUDPPorts = [ ... ];
-  # Or disable the firewall altogether.
-  # networking.firewall.enable = false;
 
   # UniFi
   services.unifi = {
@@ -484,47 +479,6 @@ in {
 #  services.miniupnpd.externalInterface = "vlan10";
 #  services.miniupnpd.natpmp = true;
 #  services.miniupnpd.upnp = true;
-  networking.firewall.allowedUDPPortRanges = [
-  ] ++ config.services.aria2.settings.listen-port;
-  networking.firewall.allowedUDPPorts = [
-    config.services.i2pd.port
-#    5353 # mDNS
-    5350 # NAT-PMP
-    # <BiglyBT>
-    27151
-    27152 # temporary for testing only
-    28549
-    29605
-    49001
-    6969
-    # </BiglyBT>
-  ];
-  networking.firewall.allowedTCPPorts = [
-    config.services.i2pd.port
-    18080 # monerod
-    # <BiglyBT>
-    27151
-    8080
-    29605
-    28549
-    6969
-    7000
-    # </BiglyBT>
-  ];
-  networking.firewall.enable = true;
-  networking.firewall.logRefusedPackets = true;
-  networking.firewall.logRefusedUnicastsOnly = false;
-  networking.firewall.logReversePathDrops = false;
-    #ipv4 udp sport 1900 saddr 192.168.178.1 accept
-    #ip saddr 192.168.178.1 accept
-  networking.firewall.extraInputRules = ''
-    ip saddr 192.168.178.0/24 udp sport 1900 udp dport >= 1024 meta pkttype unicast limit rate 4/second burst 20 packets accept comment "Accept UPnP IGD port mapping reply"
-    ip protocol igmp accept comment "Accept IGMP"
-    udp dport mdns ip6 daddr ff02::fb accept comment "Accept mDNS"
-    udp dport mdns ip daddr 224.0.0.251 accept comment "Accept mDNS"
-    pkttype { broadcast,multicast} accept
-  '';
-
   # This value determines the NixOS release from which the default
   # settings for stateful data, like file locations and database versions
   # on your system were taken. It‘s perfectly fine and recommended to leave
