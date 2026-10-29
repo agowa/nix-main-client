@@ -35,7 +35,7 @@
     # </BiglyBT>
   ];
   networking.firewall.enable = true;
-  networking.firewall.logRefusedPackets = true;
+  networking.firewall.logRefusedPackets = false;
   networking.firewall.logRefusedUnicastsOnly = false;
   networking.firewall.logReversePathDrops = false;
     #ipv4 udp sport 1900 saddr 192.168.178.1 accept
