@@ -1,5 +1,6 @@
 { config, lib, pkgs, inputs, ... }:
 
+# Note: lazytime removes the performance penulty caused by strictatime
 {
   # Cryptsetup and non-root filesystems
   # Improve performance on SSDs
