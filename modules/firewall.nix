@@ -8,7 +8,7 @@
   # networking.firewall.enable = false;
 
   networking.firewall.allowedUDPPortRanges = [
-  ] ++ config.services.aria2.settings.listen-port;
+  ] ++ config.services.aria2.settings.listen-port; # cannot use services.aria2.openFirewall as we're only using ad-hoc aria2 instead of service.
   networking.firewall.allowedUDPPorts = [
     config.services.i2pd.port
 #    5353 # mDNS
