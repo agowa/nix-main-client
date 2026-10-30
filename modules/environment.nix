@@ -6,7 +6,6 @@
   environment.systemPackages = with pkgs; [
     asciinema
     smartmontools # nixos-unstable.smartmontools
-    libva-utils
     powershell
     usbutils
     pciutils
