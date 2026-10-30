@@ -3,30 +3,30 @@
 {
   programs.mosh.enable = true;
   programs.ssh.extraConfig = "
-  Host *
-    VerifyHostKeyDNS yes
-    CheckHostIP yes
-    StrictHostKeyChecking accept-new
-    ForwardAgent no
-    ControlMAster auto
-    ControlPersist 60s
-    PreferredAuthentications publickey
-    ServerAliveInterval 11
-    HashKnownHosts no
+Host *
+  VerifyHostKeyDNS yes
+  CheckHostIP yes
+  StrictHostKeyChecking accept-new
+  ForwardAgent no
+  ControlMAster auto
+  ControlPersist 60s
+  PreferredAuthentications publickey
+  ServerAliveInterval 11
+  HashKnownHosts no
 
-    Host github.com
-      HostName github.com
-      Port 22
-      User git
+Host github.com
+  HostName github.com
+  Port 22
+  User git
 
-    Host git@gitlab.agowa338.de
-      HostName gitlab.agowa338.de
-      IdentityFile ~/.ssh/id_ed25519
-      User git
+Host git@gitlab.agowa338.de
+  HostName gitlab.agowa338.de
+  IdentityFile ~/.ssh/id_ed25519
+  User git
 
-    Host *
-      Port 2222
-      User root
+Host *
+  Port 2222
+  User root
 
   ";
   programs.kdeconnect.enable = false;
