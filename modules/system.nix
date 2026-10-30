@@ -11,7 +11,7 @@
 
   # system.autoUpgrade.channel = "https://nixos.org/channels/nixos-unstable";
   system.autoUpgrade = {
-    enable = true; # periodically runs "nixos-rebuild switch --upgrade"
+    enable = false; # periodically runs "nixos-rebuild switch --upgrade"
     channel = "https://nixos.org/channels/nixos-${config.system.nixos.release}";
   };
   nix.gc.automatic = true;
