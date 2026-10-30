@@ -133,12 +133,6 @@
       monero-gui
       element-desktop
 
-#      (pkgs.lmstudio.overrideAttrs (old: {
-#        propagatedBuildInputs = (old.propagatedBuildInputs or []) ++ [
-#          pkgs.uv
-#          pkgs.python3Packages.fastmcp
-#        ];
-#      }))
       (pkgs.symlinkJoin {
         name = "lmstudio-with-mcp";
         paths = [ pkgs.lmstudio ];
