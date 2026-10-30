@@ -116,7 +116,6 @@
       podman-compose
       protonup-qt
       brave
-      keepassxc
       vlc
       wireshark
       pwgen
