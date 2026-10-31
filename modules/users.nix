@@ -141,8 +141,17 @@
           wrapProgram $out/bin/lm-studio \
             --prefix PATH : ${pkgs.lib.makeBinPath [
               pkgs.uv
+              # nixpkgs runs fastmcp's own test suite while building it, and three tests
+              # in tests/server/providers/proxy/test_stateful_proxy_client.py abort with a
+              # RuntimeError about exiting an anyio cancel scope that belongs to another
+              # task. That only happens inside the Nix sandbox, but it fails the entire
+              # system build, so skip just this test module and keep all other checks.
               (pkgs.python3.withPackages (ps: [
-                ps.fastmcp
+                (ps.fastmcp.overridePythonAttrs (prev: {
+                  disabledTestPaths = prev.disabledTestPaths or [ ] ++ [
+                    "tests/server/providers/proxy/test_stateful_proxy_client.py"
+                  ];
+                }))
               ]))
             ]}
         '';
