@@ -17,6 +17,7 @@
       ./modules/environment.nix
       ./modules/networking.nix
       ./modules/firewall.nix
+      ./modules/sops.nix
       ./modules/programs.nix
       ./modules/virtualisation.nix
       ./modules/services.nix
