@@ -5,7 +5,7 @@ This repository contains the nix configuration for my main clients (testing stat
 ## Build and switch current system to this configuration
 
 ```bash
-nixos-rebuild switch --flake flake.nix --sudo
+nixos-rebuild switch --flake . --sudo
 ```
 
 ## Secrets
