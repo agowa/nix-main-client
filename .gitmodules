@@ -1,8 +1,12 @@
-[submodule "etc/nixos/nixpkgs/nixos-26.05"]
+[submodule "nixpkgs/sops-nix"]
+	path = nixpkgs/sops-nix
+	url = ../sops-nix
+	branch = master
+[submodule "nixpkgs/nixos-26.05"]
 	path = nixpkgs/nixos-26.05
 	url = ../nixpkgs
 	branch = nixos-26.05
-[submodule "etc/nixos/nixpkgs/nixos-unstable"]
+[submodule "nixpkgs/nixos-unstable"]
 	path = nixpkgs/nixos-unstable
 	url = ../nixpkgs
 	branch = nixos-unstable

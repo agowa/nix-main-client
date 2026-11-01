@@ -13,7 +13,7 @@
     # Deliberately not pinned here - the local flake.lock does the pinning, and that file is
     # gitignored on purpose because it is local state only. Move the input with
     # `nix flake update sops-nix`, which records the new rev in your own flake.lock.
-    sops-nix.url = "github:Mic92/sops-nix";
+    sops-nix.url = "path:./nixpkgs/sops-nix";
     sops-nix.inputs.nixpkgs.follows = "nixpkgs";
 
     self.submodules = true;
