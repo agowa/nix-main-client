@@ -1,0 +1,28 @@
+# SOPS configuration for this repository.
+#
+# This file contains public keys only, so it is safe to keep in a public repo.
+# The encrypted files themselves live in ./secrets/.
+#
+# Recipients are ed25519 SSH public keys converted into their age (X25519) form,
+# because sops encrypts to age recipients:
+#
+#   nix shell nixpkgs#ssh-to-age -c sh -c \
+#     "echo 'ssh-ed25519 AAAA... user@host' | ssh-to-age"
+#
+# On the target machine sops-nix converts /etc/ssh/ssh_host_ed25519_key back into
+# an age identity at activation time, so PC-001 decrypts with its own host key and
+# no long-lived secret key material has to be deployed by hand.
+#
+# To edit a secret file (needs the private half of one of the recipients below):
+#
+#   nix shell nixpkgs#sops -c sops secrets/secrets.yaml
+#
+# Recipients:
+#   age1e3f6w...  git@frank.fyi    (operator, for re-encrypting/rotating)
+#   age1aw8cy...  root@PC-001      (host key of the machine using these secrets)
+creation_rules:
+  - path_regex: secrets/.*\.ya?ml$
+    key_groups:
+      - age:
+          - age1e3f6w4jq7l5q4p5uc3wm70uv00l3jdq8vmf96g6mhlshshnrjaaqqauywn # ssh-ed25519 git@frank.fyi
+          - age1aw8cyfusugrj7xmdg75acfcmwcpturynele6hr3a79fls9pss4dsjgwuh4 # ssh-ed25519 root@PC-001
