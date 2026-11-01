@@ -23,6 +23,7 @@
 creation_rules:
   - path_regex: secrets/.*\.ya?ml$
     key_groups:
-      - age:
-          - age1e3f6w4jq7l5q4p5uc3wm70uv00l3jdq8vmf96g6mhlshshnrjaaqqauywn # ssh-ed25519 git@frank.fyi
+      - pgp:
+          - E21BE845B37D95CBB18375EE2122D9726719FE40
+        age:
           - age1aw8cyfusugrj7xmdg75acfcmwcpturynele6hr3a79fls9pss4dsjgwuh4 # ssh-ed25519 root@PC-001
