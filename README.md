@@ -8,6 +8,47 @@ This repository contains the nix configuration for my main clients (testing stat
 nixos-rebuild switch --flake flake.nix --sudo
 ```
 
+## Secrets
+
+Secrets are stored encrypted in this repository, so the repo can stay public. `secrets/secrets.yaml`
+is a [sops](https://docs.sops.dev) file; it is decrypted on the machine at activation time by
+[sops-nix](https://github.com/Mic92/sops-nix), which renders every entry declared in
+`sops.secrets.<name>` into `/run/secrets/<name>`.
+
+Recipients live in `.sops.yaml` and are public keys only. Two of them can decrypt the file:
+
+| Recipient | Key |
+| --- | --- |
+| `git@frank.fyi` | operator key, for editing and re-encrypting |
+| `root@PC-001` | PC-001's ed25519 **host** key; sops-nix converts it into an age identity at activation |
+
+Because the machine decrypts with its own `/etc/ssh/ssh_host_ed25519_key`, no extra secret key
+material has to be deployed. The flip side: if PC-001 is reinstalled and regenerates its host keys,
+the new public key must be added to `.sops.yaml` (while an old recipient can still decrypt) and the
+file re-encrypted.
+
+### Editing a secret
+
+```bash
+nix shell nixpkgs#sops -c sops secrets/secrets.yaml
+```
+
+Add or change values, save, and sops re-encrypts automatically for all recipients in `.sops.yaml`.
+Values must be strings; quote anything numeric, otherwise sops leaves it in plain text.
+
+To find the age recipient belonging to a new SSH key:
+
+```bash
+nix shell nixpkgs#ssh-to-age -c sh -c "echo 'ssh-ed25519 AAAA... user@host' | ssh-to-age"
+```
+
+### Adding a secret to a service
+
+Declare it in the service's module and reference the rendered path, e.g. `modules/sabnzbd.nix`
+declares `sops.secrets."sabnzbd/newshosting/password"` and hands the placeholder
+`@sabnzbd-newshosting-password@` to `services.sabnzbd.secretValues`, so the credential is only ever
+substituted into the ini file while the service starts.
+
 ## Pre-push validation
 
 `.githooks/pre-push` refuses to push while the configuration does not evaluate.
