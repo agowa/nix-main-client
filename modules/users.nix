@@ -35,6 +35,7 @@
       "libvirtd"
 #      config.systemd.sockets.podman.socketConfig.SocketGroup
       "wireshark"
+      config.services.sabnzbd.group
     ];
     uid = 1000;
     group = config.users.groups.users.name;
