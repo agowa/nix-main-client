@@ -10,10 +10,10 @@
 
     # Secrets management for this public repository: files under ./secrets are
     # encrypted with sops and decrypted on the target machine at activation.
-    # The revision is pinned in the URL itself because flake.lock is gitignored,
-    # so it cannot pin this input for us. Update by replacing the rev (then run
-    # `nix flake update --no-write-lock-file` locally to see what changes).
-    sops-nix.url = "github:Mic92/sops-nix/60182817ee048ac94b4c68ea76d5ef2e8aac730d";
+    # Deliberately not pinned here - the local flake.lock does the pinning, and that file is
+    # gitignored on purpose because it is local state only. Move the input with
+    # `nix flake update sops-nix`, which records the new rev in your own flake.lock.
+    sops-nix.url = "github:Mic92/sops-nix";
     sops-nix.inputs.nixpkgs.follows = "nixpkgs";
 
     self.submodules = true;
