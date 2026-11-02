@@ -46,6 +46,8 @@ in {
         # Stable key for the JSON API (Radarr/Sonarr, sabnzbd-cli, ...). Without it SABnzbd would
         # generate a new one on every start and could not store it in this read-only config.
         api_key = "@sabnzbd-api-key@";
+
+        permissions = "770";
       };
 
       servers.newshosting = {
@@ -74,5 +76,5 @@ in {
   # SABnzbd creates its download directory with mode (0700), which leaves members of the sabnzbd
   # group unable to access it.
   systemd.services.sabnzbd.serviceConfig.ExecStartPost =
-    "${pkgs.coreutils}/bin/chmod 0770 /var/lib/${cfg.stateDir}/Downloads";
+    "${pkgs.coreutils}/bin/chmod 0770 /var/lib/${cfg.stateDir}/Downloads /var/lib/${cfg.stateDir}/Downloads/complete /var/lib/${cfg.stateDir}/Downloads/incomplete";
 }
