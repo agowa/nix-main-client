@@ -70,4 +70,9 @@ in {
       "@sabnzbd-newshosting-password@" = config.sops.secrets."sabnzbd/newshosting/password".path;
     };
   };
+
+  # SABnzbd creates its download directory with mode (0700), which leaves members of the sabnzbd
+  # group unable to access it.
+  systemd.services.sabnzbd.serviceConfig.ExecStartPost =
+    "${pkgs.coreutils}/bin/chmod 0770 /var/lib/${cfg.stateDir}/Downloads";
 }
