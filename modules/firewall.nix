@@ -25,6 +25,7 @@
   networking.firewall.allowedTCPPorts = [
     config.services.i2pd.port
     18080 # monerod
+    18089 # monerod restricted RPC (public node)
     # <BiglyBT>
     27151
     8080

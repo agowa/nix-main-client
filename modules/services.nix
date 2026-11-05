@@ -87,6 +87,24 @@ in {
   services.monero = {
     enable = true;
     dataDir = "/mnt/vg-019cf9c3-7ed8-70e1-bb36-35e054c42b12/lv-019cf9c3-7ed8-70e1-bb36-35e054c42b12-raid5/storage001.local/blockchain/bitmonero";
+
+    priorityNodes = [
+      "p2pmd.xmrvsbeast.com:18080"
+      "nodes.hashvault.pro:18080"
+    ];
+
+    # The rest has no dedicated option in the nixpkgs module, so it is spliced into
+    # monerod.conf verbatim.
+    extraConfig = ''
+      zmq-pub=tcp://127.0.0.1:18083
+      out-peers=32
+      in-peers=64
+      enforce-dns-checkpointing=1
+      enable-dns-blocklist=1
+      rpc-restricted-bind-ip=0.0.0.0
+      rpc-restricted-bind-port=18089
+      public-node=1
+    '';
   };
 #  services.home-assistant = {
 #    enable = true;
