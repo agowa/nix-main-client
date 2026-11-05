@@ -24,6 +24,7 @@
       ./modules/i2pd.nix
       ./modules/tor.nix
       ./modules/sabnzbd.nix
+      ./modules/p2pool.nix
       ./modules/security.nix
       ./modules/system.nix
       ./modules/systemd.nix

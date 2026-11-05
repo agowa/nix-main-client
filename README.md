@@ -39,6 +39,8 @@ The firewall is enabled (`networking.firewall.enable = true`, nftables backend v
 | monerod ZMQ RPC | TCP 18082 | `127.0.0.1` | No (loopback only) | not set anywhere in this repo — port and address come from monerod's own defaults (the ZMQ *pub* socket on 18083 below is configured here) |
 | monerod ZMQ pub | TCP 18083 | `127.0.0.1` — set explicitly with `zmq-pub=tcp://127.0.0.1:18083`; a second, separate listener from the ZMQ RPC server above (monerod's own default for that one stays 18082) | No (loopback only) | `modules/services.nix` (`services.monero.extraConfig`) |
 | monerod restricted RPC (public node) | TCP 18089 | `0.0.0.0` — IPv4 wildcard only, set explicitly with `rpc-restricted-bind-ip=0.0.0.0` + `rpc-restricted-bind-port=18089`; `public-node=1` advertises this node and that endpoint to peers, so it is meant to be reached from outside | **Yes** – manual entry `18089 # monerod restricted RPC (public node)`; the module has no firewall option for `extraConfig` | `modules/services.nix` (`services.monero.extraConfig`); rule: `modules/firewall.nix`. Only the *restricted* subset of RPC methods is served here — the unauthenticated full RPC on 18081 above stays loopback-only |
+| p2pool P2P | TCP 37888 | `[::]` **and** `0.0.0.0` — dual-stack, pinned with `--p2p [::]:37888,0.0.0.0:37888`; that is also p2pool's own default for the mini sidechain (main 37889, nano 37890), it is spelled out here so the firewall rule cannot drift if `services.p2pool.sidechain` changes | **Yes** – manual entry `37888 # p2pool P2P`; the module has no firewall option for `extraArgs` | enable: `modules/p2pool.nix`; rule: `modules/firewall.nix` |
+| p2pool stratum (miners) | TCP 3333 | `[::]` **and** `0.0.0.0`, pinned with `--stratum [::]:3333,0.0.0.0:3333`. Unauthenticated **by design**: a stratum client can only point hashrate at the wallet configured here, so participating is not a security boundary. The same socket also answers HTTP requests (p2pool's statistics — `--no-stratum-http` would switch that off); its `/local/` endpoints stay closed because `--local-api` is not set | **Yes** – manual entry `3333 # p2pool stratum` | enable: `modules/p2pool.nix`; rule: `modules/firewall.nix` |
 | SABnzbd web UI + API | TCP 8085 | `127.0.0.1`, plus `inet_exposure = "none"`. It was **not** listening when this table was checked against `ss` output, despite the service being enabled — check `systemctl status sabnzbd` | **No** – deliberate; reach it through a tunnel: `ssh -L 8085:127.0.0.1:8085 PC-001` | `modules/sabnzbd.nix` |
 | LanguageTool server | TCP 8081 | loopback only (`public` left at its default `false`; port is the module default) | No (loopback only) | enable: `modules/services.nix`; address/port: module defaults |
 | systemd-resolved (stub resolver) | UDP + TCP 53 | `127.0.0.53`, also answers on `127.0.0.54` | No (loopback only) | `modules/networking.nix` (`DNSStubListener = true`) |
@@ -81,7 +83,7 @@ The last rule is by far the broadest one in the file: it accepts any broadcast o
 - **Unix sockets only, no TCP port:** openvswitch `ovsdb-server` (`--remote=punix:/run/openvswitch/db.sock`, from `virtualisation.vswitch` in `modules/networking.nix`), libvirtd, podman's docker-compatible socket, pcscd, gpg-agent.
 - **containerd is the exception:** besides its unix sockets it holds a loopback TCP listener on an auto-assigned port (`127.0.0.1:<dynamic>`). Nothing can reach it from outside, but it does appear in `ss` output.
 - **Local display stack only:** sddm/weston/KDE Plasma talk over Wayland unix sockets, and `services.xserver.enable = false` means no X11 TCP port (6000+). `programs.wireshark.dumpcap.enable` installs the capture helper but does not start its remote-capture daemon.
-- **Outbound only (no inbound service):** systemd-timesyncd to the NTP pool servers, fwupd, i2pd's reseed and UPnP/IGD traffic, monerod dialing out to peers. snowflake-proxy belongs here too in the sense that it never accepts a connection — it still binds dynamic WebRTC sockets, as its table row says.
+- **Outbound only (no inbound service):** systemd-timesyncd to the NTP pool servers, fwupd, i2pd's reseed and UPnP/IGD traffic, monerod dialing out to peers, p2pool reading monerod's RPC (18081) and ZMQ pub (18083) on loopback plus its UPnP/IGD port-mapping attempt against the gateway. snowflake-proxy belongs here too in the sense that it never accepts a connection — it still binds dynamic WebRTC sockets, as its table row says.
 - **Guest VMs:** a QEMU guest started with a graphical display opens its own VNC/SPICE listener (normally `127.0.0.1:59xx`) — created by the hypervisor at runtime, not by this configuration.
 - **ICMP echo requests are answered** (`networking.firewall.allowPing` default `true`).
 - **Currently disabled or commented out**, so they contribute no ports today: `services.unifi` (would open its own set including TCP 8080), `services.jellyfin` (TCP 8096), home-assistant (TCP 8123), `programs.kdeconnect` (UDP 1714-1764), `services.miniupnpd` (UDP 1900 + NAT-PMP/PCP), i2pd's yggdrasil transport, tor's control socket (`controlSocket.enable = false`, so only the unix socket exists). Re-check this section after enabling any of them.
@@ -91,7 +93,7 @@ The last rule is by far the broadest one in the file: it accepts any broadcast o
 The evaluated firewall lists at the time of writing — every entry is accounted for by a row above:
 
 ```
-allowedTCPPorts      = [ 22 443 5000 6969 7000 8080 18080 19410 27040 27151 28549 29605 ]
+allowedTCPPorts      = [ 22 443 3333 5000 6969 7000 8080 18080 18089 19410 27040 27151 28549 29605 37888 ]
 allowedUDPPorts      = [ 5350 6969 19410 27036 27151 27152 28549 29605 49001 ]
 allowedUDPPortRanges = [ { from = 6881; to = 6999; } { from = 60000; to = 61000; } ]
 allowedTCPPortRanges = [ ]
@@ -139,6 +141,14 @@ To find the age recipient belonging to a new SSH key:
 
 ```bash
 nix shell nixpkgs#ssh-to-age -c sh -c "echo 'ssh-ed25519 AAAA... user@host' | ssh-to-age"
+```
+
+There is a second file of the same kind, `secrets/p2pool.yaml`, holding only
+`sops.secrets."p2pool/wallet_address"` (encrypted to the same two recipients); modules point at it with
+`sops.secrets.<name>.sopsFile`. Edit it the same way:
+
+```bash
+nix shell nixpkgs#sops -c sops secrets/p2pool.yaml
 ```
 
 ### Adding a secret to a service

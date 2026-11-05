@@ -26,6 +26,8 @@
     config.services.i2pd.port
     18080 # monerod
     18089 # monerod restricted RPC (public node)
+    37888 # p2pool P2P (mini sidechain, port pinned in modules/p2pool.nix)
+    3333 # p2pool stratum - unauthenticated by design, anyone may point hashrate at our wallet
     # <BiglyBT>
     27151
     8080
