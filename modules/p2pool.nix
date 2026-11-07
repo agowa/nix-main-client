@@ -30,10 +30,15 @@ in
 
   # systemd's EnvironmentFile wants KEY=VALUE, which a bare secret value is not - hence a
   # template that wraps it. Owner + mode hand it to p2pool and to nobody else.
+  #
+  # `placeholder`, not the secret's `.path`: sops-nix replaces the placeholder string inside the
+  # rendered template with the decrypted value while the system activates, so the file really holds
+  # the address. Interpolating `.path` here would write the *file name* /run/secrets/... into the
+  # EnvironmentFile and p2pool would be handed that as its wallet, fail to decode it and exit.
   sops.templates."p2pool.env" = {
     owner = "p2pool";
     mode = "0440";
-    content = ''P2POOL_WALLET_ADDRESS=${config.sops.secrets."p2pool/wallet_address".path}'';
+    content = ''P2POOL_WALLET_ADDRESS=${config.sops.placeholder."p2pool/wallet_address"}'';
   };
 
   services.p2pool = {
