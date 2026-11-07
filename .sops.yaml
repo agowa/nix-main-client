@@ -17,11 +17,25 @@
 #
 #   nix shell nixpkgs#sops -c sops secrets/secrets.yaml
 #
+# Files under ./secrets/tor are not documents but whole key files, encrypted with
+# `sops -e --input-type binary` and read back by sops-nix with `format = "binary"`: tor's onion
+# private keys carry NUL bytes and raw key material, so they cannot be a value inside a YAML file.
+# scripts/make-onion-key.sh does the encrypting; see README.md ("Provisioning an onion identity").
+#
 # Recipients:
 #   age1e3f6w...  git@frank.fyi    (operator, for re-encrypting/rotating)
 #   age1aw8cy...  root@PC-001      (host key of the machine using these secrets)
 creation_rules:
   - path_regex: secrets/.*\.ya?ml$
+    key_groups:
+      - pgp:
+          - E21BE845B37D95CBB18375EE2122D9726719FE40
+        age:
+          - age1aw8cyfusugrj7xmdg75acfcmwcpturynele6hr3a79fls9pss4dsjgwuh4 # ssh-ed25519 root@PC-001
+  # Same recipients, for the one-file-per-secret key material described above. The rule has to be
+  # listed: sops picks the *first* matching path_regex, and these files carry no .yaml suffix for
+  # the rule above to catch them.
+  - path_regex: secrets/tor/.*$
     key_groups:
       - pgp:
           - E21BE845B37D95CBB18375EE2122D9726719FE40

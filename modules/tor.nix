@@ -1,6 +1,36 @@
 { config, lib, pkgs, inputs, ... }:
 
+let
+  # This node's v3 onion identity, kept in the repository as a sops-encrypted file:
+  # secrets/tor/monerod_hs_ed25519_secret_key. scripts/make-onion-key.sh creates it (either by
+  # letting tor invent a key pair or by importing one that is already live), README.md
+  # ("Provisioning an onion identity") says what to do with the address afterwards.
+  #
+  # The file holds exactly what tor keeps in <HiddenServiceDir>/hs_ed25519_secret_key: a 32-byte,
+  # NUL-padded "== ed25519v1-secret: type0 ==" header followed by the 64-byte expanded ed25519 key
+  # (crypto_write_tagged_contents_to_file() in tor's src/lib/crypt_ops/crypto_format.c, format
+  # documented in Appendix G of https://spec.torproject.org/rend-spec). That is all that has to be
+  # stored: on every start hs_service.c loads *only* this file, derives the public key from it with
+  # ed25519_public_key_generate(), builds the address with hs_build_address() and rewrites both
+  # `hs_ed25519_public_key` and `hostname`. Verified against tor 0.4.9: a directory containing only
+  # this one file yields the same .onion name as the directory it came from.
+  onionSecretKey = ../secrets/tor/monerod_hs_ed25519_secret_key;
+
+  # While that file is missing, everything below behaves as before - tor creates a key pair on
+  # first start and the address only exists on the machine. Committing it is therefore also the
+  # switch that turns the pinned identity on, with nothing else to remember to flip.
+  onionIdentityPinned = builtins.pathExists onionSecretKey;
+in
 {
+  # `format = "binary"` is what makes this work at all: sops-nix then decrypts the whole file and
+  # writes it out verbatim instead of extracting a string value from a YAML document - necessary,
+  # because a tor token file carries NUL bytes and raw key material and could never be a YAML
+  # value. Root-only: the nixpkgs module installs it from a `+`-prefixed (root) ExecStartPre.
+  sops.secrets."tor/monerod_hs_ed25519_secret_key" = lib.mkIf onionIdentityPinned {
+    sopsFile = onionSecretKey;
+    format = "binary";
+  };
+
   services.tor = {
     enable = true;
     relay = {
@@ -19,12 +49,17 @@
       # options - are wired up in modules/services.nix, which also explains why the ports differ
       # from each other per network.
       #
-      # tor creates the v3 name and its key pair on first start:
-      #   sudo cat /var/lib/tor/onion/monerod/hostname
-      # That address identifies this node, so it is not written here or in modules/services.nix;
-      # it goes into secrets/monero.yaml as sops.secrets."monero/tor_hostname" like every other
-      # secret in this repo, and monerod reads it from /run/secrets when it starts. Back up that
-      # directory if the address matters to you - deleting it changes the name.
+      # `secretKey` is what pins the name: the module installs the file above as
+      # <HiddenServiceDir>/hs_ed25519_secret_key before tor starts and moves the service directory
+      # from /var/lib/tor/onion/monerod to /run/tor/onion/monerod, so the private key exists only in
+      # tmpfs and is re-created from sops on every start instead of being born on this machine. The
+      # address follows from the key alone, which means it can be written down in advance:
+      #
+      #   sudo cat /run/tor/onion/monerod/hostname     # must equal secrets/monero.yaml -> monero.tor_hostname
+      #
+      # Without the file in the repo tor keeps generating its own name under
+      # /var/lib/tor/onion/monerod (deleting that directory changes such an address; a directory
+      # left over from before the identity was pinned is unused and can go).
       #
       # nixpkgs warns about this combination at evaluation time: an onion service inside a *relay*
       # can be spotted by statistical analysis of the relay's own traffic
@@ -32,6 +67,10 @@
       # reachable but not unfindable; that is enough for wallets and for transaction relay.
       onionServices."monerod" = {
         version = 3;
+
+        secretKey = lib.mkIf onionIdentityPinned
+          config.sops.secrets."tor/monerod_hs_ed25519_secret_key".path;
+
         map = [
           {
             port = 18084; # monerod anonymous-inbound (P2P over Tor)
