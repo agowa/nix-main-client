@@ -13,6 +13,11 @@
 
 let
   cfg = config.services.p2pool;
+
+  # Same file modules/tor.nix feeds to tor: the repository either carries this node's onion identity
+  # or it does not, and that is what decides whether p2pool has an address to announce. See there for
+  # the format and scripts/make-onion-key.sh for how it is created.
+  onionIdentityPinned = builtins.pathExists ../secrets/tor/monerod_hs_ed25519_secret_key;
 in
 {
   # services.p2pool does not exist in the pinned nixpkgs (nixos-26.05 ships the p2pool
@@ -35,10 +40,22 @@ in
   # rendered template with the decrypted value while the system activates, so the file really holds
   # the address. Interpolating `.path` here would write the *file name* /run/secrets/... into the
   # EnvironmentFile and p2pool would be handed that as its wallet, fail to decode it and exit.
+  # The second line is the address of the onion service in modules/tor.nix, which p2pool cannot be
+  # handed as a file path - it wants the literal name on its command line. It is a secret for the same
+  # reason monerod's copy of it is: the address identifies this node (modules/services.nix reads the
+  # very same entry for monerod's anonymous-inbound).
   sops.templates."p2pool.env" = {
     owner = "p2pool";
     mode = "0440";
-    content = ''P2POOL_WALLET_ADDRESS=${config.sops.placeholder."p2pool/wallet_address"}'';
+    # Both lines have to end in a newline of their own: nix drops the line break that directly
+    # follows an opening '', so starting the second string with one would glue the two assignments
+    # into a single EnvironmentFile line and hand p2pool a wallet address with the next variable
+    # appended to it.
+    content = ''
+      P2POOL_WALLET_ADDRESS=${config.sops.placeholder."p2pool/wallet_address"}
+    '' + lib.optionalString onionIdentityPinned ''
+      P2POOL_ONION_ADDRESS=${config.sops.placeholder."monero/tor_hostname"}
+    '';
   };
 
   services.p2pool = {
@@ -80,9 +97,40 @@ in
     # appends extraArgs directly after "--wallet <address>" without any separator, so without
     # it p2pool would be handed "--wallet 4...D1c--stratum ...", reject the wallet address
     # and exit. It also stays harmless if upstream ever fixes that.
+    # Outbound connections to .onion peers go through tor's SOCKS5 port - the same loopback proxy
+    # monerod uses for its tx-proxy=tor (modules/services.nix). Nothing becomes reachable from
+    # outside: this is tor's client side, and p2pool only dials out through it.
+    socks5 = {
+      enable = onionIdentityPinned;
+      ip = config.services.tor.client.socksListenAddress.addr;
+      port = config.services.tor.client.socksListenAddress.port;
+    };
+
     extraArgs = [
       " \\\n--stratum [::]:3333,0.0.0.0:3333"
       "--p2p [::]:37888,0.0.0.0:37888"
+
+      # p2pool has no option for a hidden service, so both halves of it are passed verbatim:
+      #
+      #   * --socks5-proxy-type tor - the module only emits --socks5, and p2pool otherwise guesses
+      #     what kind of proxy it got from its port (9050 => Tor, 4447 => I2P, anything else plain).
+      #     Onion peers are only dialled when that guess comes out as TOR, so moving
+      #     services.tor.client.socksListenAddress off 9050 would silently stop them while
+      #     --onion-address kept advertising a node nobody can reach. Naming the type drops the guess.
+      #
+      #   * --onion-address makes p2pool announce <this address>:28722 to its peers: the pubkey goes
+      #     into the merge-mining extra of every block it finds (block_template.cpp, key
+      #     keccak_onion_address_v3), which is how the address spreads, and 28722 is the constant
+      #     peers then dial. That is what makes tor's 28722 mapping in modules/tor.nix worth having -
+      #     an address that is never announced can only ever be reached by hand.
+      #
+      # The ${VAR:+...} wrapper (escaped so the *unit's* shell expands it, not nix) keeps the whole
+      # flag off the command line while secrets/monero.yaml still holds an empty entry: p2pool decodes
+      # the address into a pubkey at startup and exits when that fails, with Restart = always spinning
+      # on it - the same reason modules/services.nix skips blank addresses for monerod.
+    ] ++ lib.optionals onionIdentityPinned [
+      "--socks5-proxy-type tor"
+      "\${P2POOL_ONION_ADDRESS:+--onion-address $P2POOL_ONION_ADDRESS}"
     ];
 
     # Note: p2pool is built with UPnP support here and will therefore try to map its P2P

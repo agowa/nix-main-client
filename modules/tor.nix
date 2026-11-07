@@ -37,11 +37,18 @@ in
       enable = true;
       role = "bridge";
 
-      # This node's monerod on Tor - one onion service carrying both endpoints that Monero
-      # documents for an anonymity network (https://docs.getmonero.org/running-node/monerod-tori2p/):
+      # This node's Monero side on Tor - one onion service carrying both endpoints that Monero
+      # documents for an anonymity network (https://docs.getmonero.org/running-node/monerod-tori2p/)
+      # and both of p2pool's, so the whole node lives under a single name:
       #
-      #   18084 -> 127.0.0.1:18084   P2P, monerod's anonymous-inbound listener
-      #   18089 -> 127.0.0.1:18089   restricted RPC, for wallets connecting over Tor
+      #   18084 -> 127.0.0.1:18084   monerod P2P, its anonymous-inbound listener
+      #   18089 -> 127.0.0.1:18089   monerod restricted RPC, for wallets connecting over Tor
+      #   28722 -> 127.0.0.1:37888   p2pool sidechain P2P (the port p2pool tells peers to dial)
+      #    3333 -> 127.0.0.1:3333    p2pool stratum, for miners connecting over Tor
+      #
+      # The two services share a name but nothing else: monerod and p2pool each bind their own
+      # loopback listeners and tor dials into them. modules/p2pool.nix is the other side of the last
+      # two mappings and explains what has to be announced for them to be used.
       #
       # The P2P port is not the clearnet one (18080): monerod only speaks handshakes, timed syncs
       # and transaction relay over anonymity networks, so it opens a separate listener for them.
@@ -84,6 +91,32 @@ in
             target = {
               addr = "127.0.0.1"; # monerod's rpc-restricted-bind-ip=0.0.0.0 also answers on loopback
               port = 18089;
+            };
+          }
+
+          # p2pool's sidechain P2P, published under the port p2pool *names in its announcement*
+          # rather than under its local one: DEFAULT_P2P_PORT_ONION in p2pool's src/p2p_server.h is a
+          # hard-coded 28722 (and 28723 for I2P), so a peer that learns this address from a mined
+          # block connects to <this .onion>:28722. Mapping the local port 37888 under its clearnet
+          # number instead would leave every announcement pointing at a port nothing answers on here.
+          {
+            port = 28722;
+            target = {
+              addr = "127.0.0.1"; # p2pool's --p2p listener, see modules/p2pool.nix
+              port = 37888;        # mini sidechain default; pinned there so it cannot drift
+            };
+          }
+
+          # Stratum for miners reaching this pool over Tor instead of over the LAN/clearnet socket.
+          # Same endpoint, same lack of authentication - a stratum client can only point hashrate at
+          # the wallet configured in modules/p2pool.nix, which is already reachable from outside on
+          # TCP 3333 and merely gains an anonymity-preserving way in here. Delete this mapping to
+          # keep the onion service to sidechain P2P; p2pool keeps announcing that either way.
+          {
+            port = 3333;
+            target = {
+              addr = "127.0.0.1"; # p2pool's --stratum listener, also pinned in modules/p2pool.nix
+              port = 3333;
             };
           }
         ];
