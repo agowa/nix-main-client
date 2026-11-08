@@ -161,8 +161,12 @@ anonymous inbound P2P — `monero.tor_hostname` (the `.onion` name that follows 
 `secrets/tor/monerod_hs_ed25519_secret_key`, see *Provisioning an onion identity*) and `monero.i2p_hostname` (the `.b32.i2p` destination behind
 `/var/lib/i2pd/monero-mainnet.dat`). They identify this node, so they are not written into the
 modules; `modules/services.nix` appends one `anonymous-inbound` option per address to monerod.conf
-while the daemon starts. Both entries start out empty (sops does not encrypt empty strings), and an
-empty one is skipped rather than handed to monerod, which would exit on an empty address.
+while the daemon starts. Like `secrets/p2pool.yaml`, both entries are read through
+`sops.secrets.<name>.sopsFile = ../secrets/monero.yaml`. That is not decoration: without it they
+resolve against `sops.defaultSopsFile` (`secrets/secrets.yaml`, SABnzbd only), sops-nix's installer
+finds no `monero:` section there and aborts activation with *"the key 'monero/tor_hostname' cannot be
+found"* — which stops the whole switch, not just monerod. An entry that is still empty (sops does not
+encrypt empty strings) is skipped rather than handed to monerod, which would exit on an empty address.
 
 Only the I2P destination still has to be read off the machine after the fact: tor's name comes from
 the key in `secrets/tor/` (see *Provisioning an onion identity*), so it is known before anything
@@ -201,10 +205,25 @@ Nothing else needs storing - on every start tor loads that one file, derives `hs
 and rewrites `hostname` from it, which is what makes the address reproducible rather than machine-
 local.
 
-Then put the printed address into `secrets/monero.yaml` as `monero.tor_hostname` (that is what
-`modules/services.nix` appends to monerod.conf and what `modules/p2pool.nix` announces to p2pool's
-peers) and rebuild. With the key present tor keeps the service directory in tmpfs rather than under
-`/var/lib/tor`, so check that it agrees:
+The script also writes that address into `secrets/monero.yaml` as `monero.tor_hostname`, in the same
+run that mints the key — because that entry is what `modules/services.nix` appends to monerod.conf and
+what `modules/p2pool.nix` announces to p2pool's peers, and it has to be the address the pinned key
+actually owns. Keeping both halves in one run is deliberate: an address that does not match the key
+means announcing a node nobody can reach, while an entry left empty — which is all this script used to
+leave behind, since it only *printed* the value — runs monerod without anonymous inbound P2P and keeps
+p2pool from ever advertising its onion. Re-running the script with a different key therefore replaces a
+live address, and it warns before doing so.
+
+Re-encrypting `secrets/monero.yaml` needs the private half of one of the recipients in `.sops.yaml`. On
+a machine that has neither (a build sandbox, say) the identity still gets committed and the script tells
+you to set the value by hand:
+
+```bash
+nix shell nixpkgs#sops -c sops secrets/monero.yaml    # monero: tor_hostname: "<address>"
+```
+
+With the key present tor keeps the service directory in tmpfs rather than under `/var/lib/tor`, so after
+a rebuild check that it agrees with what was recorded:
 
 ```bash
 sudo cat /run/tor/onion/monerod/hostname      # must equal monero.tor_hostname

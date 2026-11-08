@@ -7,6 +7,13 @@
 # hands it to services.tor.relay.onionServices."monerod".secretKey, and tor derives the public key
 # and the address from it on every start. See README.md, "Provisioning an onion identity".
 #
+# It then writes that address into secrets/monero.yaml as monero.tor_hostname, because that is where
+# modules/services.nix (monerod's anonymous-inbound) and modules/p2pool.nix (--onion-address) read it
+# from. Both halves are written by this one run on purpose: the address follows from the key, so
+# storing one without the other leaves the node either announcing an address its key does not own or -
+# with the entry left empty, which is how this script used to end - running without anonymous inbound
+# P2P at all and never advertising its onion.
+#
 #   ./scripts/make-onion-key.sh                 # mint a fresh identity (new .onion)
 #   ./scripts/make-onion-key.sh import <file>   # adopt a key that is already live on PC-001
 #
@@ -23,6 +30,7 @@ set -euo pipefail
 
 REPO_ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 OUT="$REPO_ROOT/secrets/tor/monerod_hs_ed25519_secret_key"
+MONERO_SECRETS="$REPO_ROOT/secrets/monero.yaml"   # where the derived address is recorded
 SERVICE_DIR_NAME="monerod"   # must match the onionServices.<name> in modules/tor.nix
 
 die() { echo "error: $*" >&2; exit 1; }
@@ -46,7 +54,7 @@ cleanup() {
   stop_tor
   find "$TMP" -type f -exec shred -u {} + 2>/dev/null
   rm -rf "$TMP"
-  rm -f "${OUT}.tmp"   # a failed run must not leave anything in the repository either
+  rm -f "${OUT}.tmp" "${MONERO_SECRETS}.tmp"   # a failed run must not leave anything in the repo
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM   # so that the trap above actually runs when interrupted
@@ -129,8 +137,8 @@ if [ -n "$IMPORTED_SHA" ] && [ "$(sha256sum < "$KEY")" != "$IMPORTED_SHA" ]; the
   die "tor rewrote the imported key instead of loading it - it would have minted a *new* address. The file is fine on its own, so this usually means it came from a v2 service or was copied with converted line endings."
 fi
 
-install -d -m 0755 "$(dirname "$OUT")"
 if command -v sops >/dev/null; then SOPS=(sops); else SOPS=(nix shell nixpkgs#sops -c sops); fi
+install -d -m 0755 "$(dirname "$OUT")"
 # Both flags are needed and both say why: sops picks its recipients by matching path_regex against
 # the *input* file's path, and that input is deliberately outside the repository (it is plaintext).
 # `--config` names the rule file explicitly, `--filename-override` hands sops the repository path
@@ -139,18 +147,45 @@ if command -v sops >/dev/null; then SOPS=(sops); else SOPS=(nix shell nixpkgs#so
 "${SOPS[@]}" --config "$REPO_ROOT/.sops.yaml" \
              --filename-override "$OUT" \
              -e --input-type binary "$KEY" > "$OUT.tmp"
+# 0600 rather than the umask default: this is encrypted, but it is still private key material and
+# there is no reason for it to be world-readable in a checkout (secrets/p2pool.yaml, monero.yaml).
+chmod 0600 "$OUT.tmp"
 mv "$OUT.tmp" "$OUT"
+
+# The address belongs next to the key it came from. It is a secret for the same reason monerod's
+# payout address is: this repository is public and the name identifies this node.
+if [ -e "$MONERO_SECRETS" ]; then
+  # `sops set` decrypts and re-encrypts in place for the recipients already listed in the file, so
+  # every other entry in it (monero.i2p_hostname, anything added later) survives untouched. The old
+  # value is read only to warn about a replacement; it never goes to disk.
+  OLD="$("${SOPS[@]}" --extract '["monero"]["tor_hostname"]' -d "$MONERO_SECRETS" 2>/dev/null || true)"
+  OLD="${OLD%\"}"; OLD="${OLD#\"}"
+  if [ -n "$OLD" ] && [ "$OLD" != "$ONION" ]; then
+    echo "warning: replacing the recorded address $OLD with $ONION. Peers that learned the old one now" >&2
+    echo "         point at a node that does not exist, and p2pool stops announcing something reachable." >&2
+  fi
+  "${SOPS[@]}" --set "[\"monero\"][\"tor_hostname\"] \"$ONION\"" "$MONERO_SECRETS" \
+    || die "could not write monero.tor_hostname into $MONERO_SECRETS - this run needs the private half of one of the recipients in .sops.yaml to re-encrypt that file. The identity itself is already committed; set the value by hand with: sops $MONERO_SECRETS"
+else
+  # Nothing to merge into, so create it. Same two flags as for the key above: the plaintext stays
+  # outside the repository, hence handing sops the repository path explicitly. i2p_hostname starts
+  # out empty - i2pd still invents that name on its own first start (modules/i2pd.nix) and
+  # modules/services.nix skips an entry that is blank rather than feeding monerod an empty address.
+  printf 'monero:\n    tor_hostname: "%s"\n    i2p_hostname: ""\n' "$ONION" > "$TMP/monero-plain.yaml"
+  "${SOPS[@]}" --config "$REPO_ROOT/.sops.yaml" \
+               --filename-override "$MONERO_SECRETS" \
+               -e --input-type yaml "$TMP/monero-plain.yaml" > "$MONERO_SECRETS.tmp"
+  chmod 0600 "$MONERO_SECRETS.tmp"
+  mv "$MONERO_SECRETS.tmp" "$MONERO_SECRETS"
+fi
 
 echo
 echo "encrypted identity written: ${OUT#$REPO_ROOT/}"
 echo "  address      $ONION"
+echo "  recorded in  ${MONERO_SECRETS#$REPO_ROOT/} -> monero.tor_hostname (monero.i2p_hostname is still empty;"
+echo "               i2pd writes its own name on first start, see modules/i2pd.nix)"
 echo
-echo "next: record that address, it is what the modules and monerod announce -"
+echo "next: rebuild, then check that tor agrees with what was recorded:"
 echo
-echo "  nix shell nixpkgs#sops -c sops $REPO_ROOT/secrets/monero.yaml"
-echo "      monero:"
-echo "          tor_hostname: \"$ONION\""
-echo
-echo "then rebuild and check that tor agrees:"
-echo
+echo "  sudo nixos-rebuild switch --flake ."
 echo "  sudo cat /run/tor/onion/$SERVICE_DIR_NAME/hostname"

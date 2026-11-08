@@ -141,11 +141,12 @@ in {
       tx-proxy=i2p,${config.services.i2pd.proto.socksProxy.address}:${toString config.services.i2pd.proto.socksProxy.port},16
 
       # anonymous-inbound=<hidden address>,127.0.0.1:<port> belongs here as well (with a port for
-      # Tor, without one for I2P - see moneroAnonymousInbound), but the
-      # two addresses are created by tor and i2pd on first start and identify this node, so they
-      # are not written into a public repository: they live in secrets/monero.yaml and get
-      # appended to monerod.conf while it is generated - see sops.secrets."monero/*" and
-      # systemd.services.monero.preStart below.
+      # Tor, without one for I2P - see moneroAnonymousInbound), but the two addresses identify this
+      # node and are therefore not written into a public repository: they live in
+      # secrets/monero.yaml and get appended to monerod.conf while it is generated - see
+      # sops.secrets."monero/*" and systemd.services.monero.preStart below. The onion name gets put
+      # there by scripts/make-onion-key.sh, because it follows from the identity pinned in
+      # secrets/tor/; the I2P one only exists after i2pd's first start and is recorded by hand.
     '';
   };
 
@@ -154,24 +155,35 @@ in {
   # inTunnels."monerod-p2p" + "monerod-rpc", which share a keyset). They are secrets for the same
   # reason the p2pool payout address is: this repository is public and they identify this node.
   #
-  # tor and i2pd generate them on first start, so they cannot be known while evaluating this
-  # file. Record them once both services have run, then rebuild:
+  # `sopsFile` is not decoration here: sops.defaultSopsFile (modules/sops.nix) points at
+  # secrets/secrets.yaml, which carries only the SABnzbd credentials. Without it these two look for a
+  # `monero:` section in that file, recurseSecretKey() in sops-nix's installer finds none and
+  # activation dies with "the key 'monero/tor_hostname' cannot be found" - which aborts the whole
+  # switch, not just monerod. Both addresses live in secrets/monero.yaml; modules/p2pool.nix reads
+  # the onion one out of the very same entry.
   #
-  #   sudo cat /var/lib/tor/onion/monerod/hostname        -> monero.tor_hostname
+  # The onion name no longer has to wait for tor's first start: scripts/make-onion-key.sh pins this
+  # node's identity as secrets/tor/monerod_hs_ed25519_secret_key and writes the address derived from
+  # that key into monero.yaml, so it is known - and announced - on the very first boot. The .b32.i2p
+  # name is still invented by i2pd on first start (its identity is /var/lib/i2pd/monero-mainnet.dat)
+  # and has to be recorded afterwards:
+  #
   #   http://127.0.0.1:7070/?page=i2p_tunnels             -> monero.i2p_hostname, the .b32 name of
   #       (destination behind /var/lib/i2pd/monero-mainnet.dat)   that tunnel's destination
   #
   #   nix shell nixpkgs#sops -c sops secrets/monero.yaml
   #
-  # Both entries are still empty in the committed file (sops leaves empty strings alone), and an
-  # empty one is skipped by the hook below rather than handed to monerod. owner = "monero" because
-  # that hook reads them as the daemon's user; mode stays 0400, so only root and monero can read.
+  # An entry that is still empty is skipped by the hook below rather than handed to monerod (sops
+  # leaves empty strings alone). owner = "monero" because that hook reads them as the daemon's user;
+  # mode stays 0400, so only root and monero can read.
   sops.secrets."monero/tor_hostname" = {
+    sopsFile = ../secrets/monero.yaml;
     owner = "monero";
     restartUnits = [ "monero.service" ]; # a new address only takes effect when the conf is rewritten
   };
 
   sops.secrets."monero/i2p_hostname" = {
+    sopsFile = ../secrets/monero.yaml;
     owner = "monero";
     restartUnits = [ "monero.service" ];
   };
