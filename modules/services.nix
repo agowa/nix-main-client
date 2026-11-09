@@ -12,8 +12,9 @@ let
   # networks: modules/tor.nix maps onion :18084 -> 127.0.0.1:18084, modules/i2pd.nix sends I2P
   # :18085 to 127.0.0.1:18085. Both differ from the clearnet P2P port (18080) on purpose - over
   # an anonymity network monerod serves a reduced protocol (handshake, timed sync, new txes) and
-  # opens its own listener for it. The address itself is a secret and only known at start time,
-  # see sops.secrets."monero/*" and systemd.services.monero.preStart below.
+  # opens its own listener for it. Neither address may be written into this public repository - they
+  # identify this node - so both come from secrets/monero.yaml; see sops.secrets."monero/*" and
+  # systemd.services.monero.preStart below, and the two scripts that fill those entries in.
   # `announcePort` says whether the address is written with a port: a .onion needs it (that is
   # the port peers connect to and monerod stores it), while an i2p destination must be given bare
   # because monero's i2p addresses have no port field at all - i2pd then delivers incoming streams
@@ -144,16 +145,18 @@ in {
       # Tor, without one for I2P - see moneroAnonymousInbound), but the two addresses identify this
       # node and are therefore not written into a public repository: they live in
       # secrets/monero.yaml and get appended to monerod.conf while it is generated - see
-      # sops.secrets."monero/*" and systemd.services.monero.preStart below. The onion name gets put
-      # there by scripts/make-onion-key.sh, because it follows from the identity pinned in
-      # secrets/tor/; the I2P one only exists after i2pd's first start and is recorded by hand.
+      # sops.secrets."monero/*" and systemd.services.monero.preStart below. Both names are written
+      # there by scripts/make-onion-key.sh and scripts/make-i2p-key.sh, because each one follows from
+      # an identity pinned in the repository (secrets/tor/, secrets/i2p/) - so neither has to wait for
+      # its router's first start any more, and both are announced on the very first boot.
     '';
   };
 
   # The hidden addresses used for anonymous inbound P2P: one onion name (modules/tor.nix,
-  # relay.onionServices."monerod") and one .b32.i2p destination (modules/i2pd.nix,
-  # inTunnels."monerod-p2p" + "monerod-rpc", which share a keyset). They are secrets for the same
-  # reason the p2pool payout address is: this repository is public and they identify this node.
+  # relay.onionServices."monerod") and one .b32.i2p destination (modules/i2pd.nix, whose four tunnels
+  # - monerod's P2P and RPC plus p2pool's sidechain P2P and stratum - all share one keyset). They are
+  # secrets for the same reason the p2pool payout address is: this repository is public and they
+  # identify this node.
   #
   # `sopsFile` is not decoration here: sops.defaultSopsFile (modules/sops.nix) points at
   # secrets/secrets.yaml, which carries only the SABnzbd credentials. Without it these two look for a
@@ -162,30 +165,37 @@ in {
   # switch, not just monerod. Both addresses live in secrets/monero.yaml; modules/p2pool.nix reads
   # the onion one out of the very same entry.
   #
-  # The onion name no longer has to wait for tor's first start: scripts/make-onion-key.sh pins this
-  # node's identity as secrets/tor/monerod_hs_ed25519_secret_key and writes the address derived from
-  # that key into monero.yaml, so it is known - and announced - on the very first boot. The .b32.i2p
-  # name is still invented by i2pd on first start (its identity is /var/lib/i2pd/monero-mainnet.dat)
-  # and has to be recorded afterwards:
+  # Neither name has to wait for its router's first start any more, because both identities are in the
+  # repository: scripts/make-onion-key.sh pins this node's onion identity as
+  # secrets/tor/monerod_hs_ed25519_secret_key and scripts/make-i2p-key.sh pins its I2P destination as
+  # secrets/i2p/monero_mainnet_keys.dat, and each script writes the address derived from *its* key into
+  # monero.yaml in the same run that mints it. modules/tor.nix and modules/i2pd.nix then make tor and
+  # i2pd use exactly those keys, so what gets announced is decided here rather than on the machine -
+  # which is only worth having as long as the two halves cannot drift apart:
   #
-  #   http://127.0.0.1:7070/?page=i2p_tunnels             -> monero.i2p_hostname, the .b32 name of
-  #       (destination behind /var/lib/i2pd/monero-mainnet.dat)   that tunnel's destination
+  #   sudo cat /run/tor/onion/monerod/hostname            -> monero.tor_hostname
+  #   sudo journalctl -u i2pd | grep 'Local address'      -> monero.i2p_hostname
   #
-  #   nix shell nixpkgs#sops -c sops secrets/monero.yaml
+  # An entry that is still empty therefore does mean "no anonymous inbound P2P on that network", and it
+  # is the one thing to check after minting: `sops secrets/monero.yaml` shows both, and
+  # scripts/make-i2p-key.sh record re-derives the I2P one from the committed keyset.
   #
   # An entry that is still empty is skipped by the hook below rather than handed to monerod (sops
   # leaves empty strings alone). owner = "monero" because that hook reads them as the daemon's user;
   # mode stays 0400, so only root and monero can read.
+  # Both units, not just monerod: modules/p2pool.nix reads the very same two entries into its
+  # EnvironmentFile template and passes them as --onion-address/--i2p-address, so a new address only
+  # takes effect once p2pool is restarted with the rewritten file as well.
   sops.secrets."monero/tor_hostname" = {
     sopsFile = ../secrets/monero.yaml;
     owner = "monero";
-    restartUnits = [ "monero.service" ]; # a new address only takes effect when the conf is rewritten
+    restartUnits = [ "monero.service" "p2pool.service" ]; # a new address only takes effect when the conf is rewritten
   };
 
   sops.secrets."monero/i2p_hostname" = {
     sopsFile = ../secrets/monero.yaml;
     owner = "monero";
-    restartUnits = [ "monero.service" ];
+    restartUnits = [ "monero.service" "p2pool.service" ];
   };
 
   # The nixpkgs module writes ${dataDir}/monerod.conf in preStart, so this is appended after it:

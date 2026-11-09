@@ -41,10 +41,11 @@ The firewall is enabled (`networking.firewall.enable = true`, nftables backend v
 | monerod restricted RPC (public node) | TCP 18089 | `0.0.0.0` — IPv4 wildcard only, set explicitly with `rpc-restricted-bind-ip=0.0.0.0` + `rpc-restricted-bind-port=18089`; `public-node=1` advertises this node and that endpoint to peers, so it is meant to be reached from outside | **Yes** – manual entry `18089 # monerod restricted RPC (public node)`; the module has no firewall option for `extraConfig` | `modules/services.nix` (`services.monero.extraConfig`); rule: `modules/firewall.nix`. Only the *restricted* subset of RPC methods is served here — the unauthenticated full RPC on 18081 above stays loopback-only |
 | monerod anonymous P2P listeners | TCP 18084 (Tor) and TCP 18085 (I2P) | `127.0.0.1` — opened by monerod itself, because `anonymous-inbound=<hidden address>,127.0.0.1:<port>` names the local port it should deliver to; tor and i2pd are the only processes that reach them and they do so over loopback | No (loopback only) | ports: `modules/services.nix` (`moneroAnonymousInbound`, appended to monerod.conf by `systemd.services.monero.preStart`); front-ends: `modules/tor.nix`, `modules/i2pd.nix`. Not the clearnet P2P port 18080 on purpose: over an anonymity network monerod only speaks handshakes, timed syncs and transaction relay |
 | monerod over Tor (P2P + restricted RPC) | one v3 onion service with two ports: `<name>.onion:18084` → `127.0.0.1:18084` (P2P, the listener above) and `<name>.onion:18089` → `127.0.0.1:18089` (restricted RPC, for wallets connecting over Tor). Nothing new is bound on an interface — tor dials into loopback | **No** – and none needed, tor connects outwards; its own inbound port is the ORPort 443 row above | hidden service: `modules/tor.nix` (`services.tor.relay.onionServices."monerod"`); monerod side: `modules/services.nix` (`tx-proxy=tor,127.0.0.1:9050,16` + the appended `anonymous-inbound`). The `.onion` name follows from the private key pinned in `secrets/tor/monerod_hs_ed25519_secret_key` (see *Provisioning an onion identity*), so it is known before tor ever starts; the name itself still lives in `secrets/monero.yaml` rather than here, and with that key present tor keeps its service directory in `/run/tor/onion/monerod` instead of `/var/lib/tor/onion/monerod`. nixpkgs warns at evaluation that an onion service inside a *relay* can be spotted by traffic analysis of the relay ([trac#8742](https://trac.torproject.org/projects/tor/ticket/8742)) — this host is a bridge, so the endpoints are anonymously reachable but not unfindable |
-| monerod over I2P (P2P + restricted RPC) | two server tunnels sharing one keyset, i.e. one destination: `<b32>.b32.i2p` (default endpoint) → `127.0.0.1:18085` for P2P and `<b32>.b32.i2p:18089` → `127.0.0.1:18089` for the restricted RPC. Again no new socket on any interface | **No** – none needed, i2pd is already connected; its transport ports have the NTCP2/SSU2 rows above | tunnels: `modules/i2pd.nix` (`services.i2pd.inTunnels."monerod-p2p"`, `"monerod-rpc"`); monerod side: `modules/services.nix` (`tx-proxy=i2p,127.0.0.1:4447,16` + the appended `anonymous-inbound`). The `.b32.i2p` name derives from `/var/lib/i2pd/monero-mainnet.dat`, which i2pd generates on first start — back that file up (deleting it changes the address) and record the name in `secrets/monero.yaml`. The P2P tunnel uses `inPort = 0`, i.e. the destination's default streaming endpoint, because monerod's I2P addresses carry no port (its peers dial port 1 and i2pd falls back to that endpoint); the RPC tunnel pins `inPort = 18089` so wallet traffic matches it exactly |
+| monerod over I2P (P2P + restricted RPC) | two server tunnels sharing one keyset, i.e. one destination: `<b32>.b32.i2p` (default endpoint) → `127.0.0.1:18085` for P2P and `<b32>.b32.i2p:18089` → `127.0.0.1:18089` for the restricted RPC. Again no new socket on any interface | **No** – none needed, i2pd is already connected; its transport ports have the NTCP2/SSU2 rows above | tunnels: `modules/i2pd.nix` (`services.i2pd.inTunnels."monerod-p2p"`, `"monerod-rpc"`); monerod side: `modules/services.nix` (`tx-proxy=i2p,127.0.0.1:4447,16` + the appended `anonymous-inbound`). The `.b32.i2p` name derives from the keyset committed as `secrets/i2p/monero_mainnet_keys.dat`, which sops installs at `/var/lib/i2pd/monero-mainnet.dat` before i2pd starts (see *Provisioning an I2P destination*), so the address is known before the first boot and lands in `secrets/monero.yaml` by way of that same script. The P2P tunnel uses `inPort = 0`, i.e. the destination's default streaming endpoint, because monerod's I2P addresses carry no port (its peers dial port 1 and i2pd falls back to that endpoint); the RPC tunnel pins `inPort = 18089` so wallet traffic matches it exactly |
 | p2pool P2P | TCP 37888 | `[::]` **and** `0.0.0.0` — dual-stack, pinned with `--p2p [::]:37888,0.0.0.0:37888`; that is also p2pool's own default for the mini sidechain (main 37889, nano 37890), it is spelled out here so the firewall rule cannot drift if `services.p2pool.sidechain` changes | **Yes** – manual entry `37888 # p2pool P2P`; the module has no firewall option for `extraArgs` | enable: `modules/p2pool.nix`; rule: `modules/firewall.nix` |
 | p2pool stratum (miners) | TCP 3333 | `[::]` **and** `0.0.0.0`, pinned with `--stratum [::]:3333,0.0.0.0:3333`. Unauthenticated **by design**: a stratum client can only point hashrate at the wallet configured here, so participating is not a security boundary. The same socket also answers HTTP requests (p2pool's statistics — `--no-stratum-http` would switch that off); its `/local/` endpoints stay closed because `--local-api` is not set | **Yes** – manual entry `3333 # p2pool stratum` | enable: `modules/p2pool.nix`; rule: `modules/firewall.nix` |
 | p2pool over Tor (sidechain P2P + stratum) | the **same** v3 onion service as monerod, with two more ports: <name>.onion:28722 -> 127.0.0.1:37888 and <name>.onion:3333 -> 127.0.0.1:3333. The first is published under 28722 rather than 37888 because that is the constant p2pool puts in its announcements (`DEFAULT_P2P_PORT_ONION` in `src/p2p_server.h`, 28723 for I2P) - mapping it under its local port would advertise an endpoint nothing here answers on. Nothing new is bound on an interface, tor dials into loopback | **No** - none needed; tor connects outwards and its own inbound port is the ORPort 443 row above | hidden service: `modules/tor.nix` (`services.tor.relay.onionServices."monerod".map`); p2pool side: `modules/p2pool.nix`, which also has to *announce* the address for the P2P mapping ever to be used - `--onion-address <address>` (from `secrets/monero.yaml` -> `monero.tor_hostname`) puts its pubkey into every block p2pool finds, which is how peers learn it, and `--socks5 127.0.0.1:9050` + `--socks5-proxy-type tor` is how p2pool reaches other nodes' onions. Both are only set once the identity is pinned (see *Provisioning an onion identity*), and the announcement stays away while `monero.tor_hostname` is still empty |
+| p2pool over I2P (sidechain P2P + stratum) | the **same** I2P destination as monerod, with two more ports: `<b32>.b32.i2p:28723` -> `127.0.0.1:37888` and `<b32>.b32.i2p:3333` -> `127.0.0.1:3333`. The first is published under 28723 rather than 37888 because that is the constant p2pool puts in its I2P announcements (`DEFAULT_P2P_PORT_I2P` in `src/p2p_server.h`, the sibling of Tor's 28722) - and, unlike monerod, p2pool does put a port in its addresses, so this tunnel cannot sit on the destination's default endpoint. Nothing new is bound on an interface, i2pd dials into loopback | **No** - none needed; i2pd connects outwards and its transport ports have the NTCP2/SSU2 rows above | tunnels: `modules/i2pd.nix` (`services.i2pd.inTunnels."p2pool-p2p"`, `"p2pool-stratum"`); p2pool side: `modules/p2pool.nix`, which has to *announce* the destination for the P2P tunnel ever to be used - `--i2p-address <b32>` (from `secrets/monero.yaml` -> `monero.i2p_hostname`) puts it into every block p2pool finds, and it stays away while that entry is empty. One asymmetry versus Tor: p2pool dials out through a single SOCKS5 proxy whose type is either tor or i2p (`--socks5-proxy-type`, kept at `tor` here), so I2P peers reach this node inbound rather than the other way round |
 | SABnzbd web UI + API | TCP 8085 | `127.0.0.1`, plus `inet_exposure = "none"`. It was **not** listening when this table was checked against `ss` output, despite the service being enabled — check `systemctl status sabnzbd` | **No** – deliberate; reach it through a tunnel: `ssh -L 8085:127.0.0.1:8085 PC-001` | `modules/sabnzbd.nix` |
 | LanguageTool server | TCP 8081 | loopback only (`public` left at its default `false`; port is the module default) | No (loopback only) | enable: `modules/services.nix`; address/port: module defaults |
 | systemd-resolved (stub resolver) | UDP + TCP 53 | `127.0.0.53`, also answers on `127.0.0.54` | No (loopback only) | `modules/networking.nix` (`DNSStubListener = true`) |
@@ -89,7 +90,7 @@ The last rule is by far the broadest one in the file: it accepts any broadcast o
 - **Local display stack only:** sddm/weston/KDE Plasma talk over Wayland unix sockets, and `services.xserver.enable = false` means no X11 TCP port (6000+). `programs.wireshark.dumpcap.enable` installs the capture helper but does not start its remote-capture daemon.
 - **Outbound only (no inbound service):** systemd-timesyncd to the NTP pool servers, fwupd, i2pd's reseed and UPnP/IGD traffic, monerod dialing out to peers — including `.onion`/`.b32.i2p` peers via `tx-proxy`, which points it at tor's SOCKS port 9050 and i2pd's SOCKS port 4447, both of which are loopback rows above, p2pool reading monerod's RPC (18081) and ZMQ pub (18083) on loopback plus its UPnP/IGD port-mapping attempt against the gateway. snowflake-proxy belongs here too in the sense that it never accepts a connection — it still binds dynamic WebRTC sockets, as its table row says.
 - **Guest VMs:** a QEMU guest started with a graphical display opens its own VNC/SPICE listener (normally `127.0.0.1:59xx`) — created by the hypervisor at runtime, not by this configuration.
-- **The hidden services themselves add no listener, but monerod does:** the onion service and the two I2P server tunnels are outbound — tor and i2pd publish a destination and forward into loopback, so they create no socket. `anonymous-inbound` however makes monerod open `127.0.0.1:18084` and `127.0.0.1:18085`, which *do* show up in `ss` output (see the row above), and it only does so once the two addresses are recorded in `secrets/monero.yaml`.
+- **The hidden services themselves add no listener, but monerod does:** the onion service and the four I2P server tunnels are outbound — tor and i2pd publish a destination and forward into loopback, so they create no socket. `anonymous-inbound` however makes monerod open `127.0.0.1:18084` and `127.0.0.1:18085`, which *do* show up in `ss` output (see the row above), and it only does so once the two addresses are recorded in `secrets/monero.yaml`.
 - **ICMP echo requests are answered** (`networking.firewall.allowPing` default `true`).
 - **Currently disabled or commented out**, so they contribute no ports today: `services.unifi` (would open its own set including TCP 8080), `services.jellyfin` (TCP 8096), home-assistant (TCP 8123), `programs.kdeconnect` (UDP 1714-1764), `services.miniupnpd` (UDP 1900 + NAT-PMP/PCP), i2pd's yggdrasil transport, tor's control socket (`controlSocket.enable = false`, so only the unix socket exists). Re-check this section after enabling any of them.
 
@@ -158,8 +159,8 @@ nix shell nixpkgs#sops -c sops secrets/p2pool.yaml
 
 A third file, `secrets/monero.yaml`, holds the two hidden-service addresses monerod announces for
 anonymous inbound P2P — `monero.tor_hostname` (the `.onion` name that follows from the pinned key in
-`secrets/tor/monerod_hs_ed25519_secret_key`, see *Provisioning an onion identity*) and `monero.i2p_hostname` (the `.b32.i2p` destination behind
-`/var/lib/i2pd/monero-mainnet.dat`). They identify this node, so they are not written into the
+`secrets/tor/monerod_hs_ed25519_secret_key`, see *Provisioning an onion identity*) and `monero.i2p_hostname` (the `.b32.i2p` name that follows from the pinned keyset in
+`secrets/i2p/monero_mainnet_keys.dat`, see *Provisioning an I2P destination*). They identify this node, so they are not written into the
 modules; `modules/services.nix` appends one `anonymous-inbound` option per address to monerod.conf
 while the daemon starts. Like `secrets/p2pool.yaml`, both entries are read through
 `sops.secrets.<name>.sopsFile = ../secrets/monero.yaml`. That is not decoration: without it they
@@ -168,13 +169,15 @@ finds no `monero:` section there and aborts activation with *"the key 'monero/to
 found"* — which stops the whole switch, not just monerod. An entry that is still empty (sops does not
 encrypt empty strings) is skipped rather than handed to monerod, which would exit on an empty address.
 
-Only the I2P destination still has to be read off the machine after the fact: tor's name comes from
-the key in `secrets/tor/` (see *Provisioning an onion identity*), so it is known before anything
-starts. After i2pd has started for the first time:
+Neither name has to be read off the machine after the fact any more: both follow from private keys
+that are in this repository, and `scripts/make-onion-key.sh` / `scripts/make-i2p-key.sh` write each
+address into `monero.yaml` in the same run that mints or adopts its key. What is left of the old
+procedure is checking, after a rebuild, that the routers agree:
 
 ```bash
-# http://127.0.0.1:7070/?page=i2p_tunnels         # -> monero.i2p_hostname (the .b32 name)
-nix shell nixpkgs#sops -c sops secrets/monero.yaml   # paste it, save, then rebuild
+sudo cat /run/tor/onion/monerod/hostname          # -> monero.tor_hostname
+sudo journalctl -u i2pd | grep 'Local address'    # -> monero.i2p_hostname
+nix shell nixpkgs#sops -c sops secrets/monero.yaml   # only ever to edit them
 ```
 
 ### Provisioning an onion identity
@@ -232,6 +235,71 @@ sudo cat /run/tor/onion/monerod/hostname      # must equal monero.tor_hostname
 A `/var/lib/tor/onion/monerod` left over from before the identity was pinned is unused and can go.
 Deleting `secrets/tor/monerod_hs_ed25519_secret_key` retires the address, and whoever can decrypt that
 file controls it - so if it leaks anywhere it was not meant to, move to a new one.
+
+### Provisioning an I2P destination
+
+`modules/i2pd.nix` publishes this node's Monero side as one I2P destination carrying four ports —
+monerod's P2P and restricted RPC plus p2pool's sidechain P2P and stratum, all four tunnels naming the
+same keyset in `keys`. Without further ado i2pd invents that destination on first start and writes it
+to `/var/lib/i2pd/monero-mainnet.dat`, so the `.b32.i2p` name exists only on PC-001 until somebody
+reads it off and pastes it into `secrets/monero.yaml` — and a reinstalled machine whose
+`/var/lib/i2pd` went missing gets a different one. Committing the keyset fixes both, because a
+`.b32.i2p` address is base32 over the SHA-256 of the destination those bytes contain:
+
+```bash
+./scripts/make-i2p-key.sh                # mint a fresh destination; prints the .b32.i2p that belongs to it
+```
+
+or, to keep a destination PC-001 already has, hand the script that machine's keyset (it needs root there):
+
+```bash
+ssh PC-001 sudo cat /var/lib/i2pd/monero-mainnet.dat > /tmp/i2p-keys.dat
+./scripts/make-i2p-key.sh import /tmp/i2p-keys.dat && shred -u /tmp/i2p-keys.dat
+```
+
+Either way the script writes `secrets/i2p/monero_mainnet_keys.dat`: a sops file holding one whole key
+file rather than a document (`sops -e --input-type binary`, read back by sops-nix with
+`format = "binary"`), because an i2pd keyset is raw key material — signing key type, signing key pair
+and encryption key pair, written the way `PrivateKeys::ToBuffer()` writes them. That is byte for byte
+what i2pd keeps in `<datadir>/monero-mainnet.dat` and what `i2pd-tools`' `keygen` produces (both
+report ED25519-SHA512 / encryption type 0), which is why the file can be dropped straight into the
+datadir: `modules/i2pd.nix` installs it there as `/var/lib/i2pd/monero-mainnet.dat`, owned by `i2pd`,
+before the daemon starts.
+
+Unlike tor, none of this needs a network — an I2P address is a hash, so `keyinfo` prints it from the
+key file alone and no router has to reach its peers first. The script still asks i2pd itself to
+confirm: it runs a throwaway router over a temporary datadir and waits for that instance to log
+`Clients: Local address <address> loaded`, then checks the file came back untouched. That is what
+catches a keyset this i2pd would not accept, which matters because i2pd answers an unreadable key file
+by quietly minting a new one — nothing downstream would ever complain about the address changing.
+
+The address goes into `secrets/monero.yaml` as `monero.i2p_hostname`, in the same run: it is what
+`modules/services.nix` appends to monerod.conf and what `modules/p2pool.nix` passes to
+`--i2p-address`. Re-encrypting that file needs the private half of one of the recipients in
+`.sops.yaml`; where neither is available (a build sandbox, say) the identity still gets committed and
+the run stops with a message to finish elsewhere:
+
+```bash
+./scripts/make-i2p-key.sh record    # re-derive the address from the committed keyset into secrets/monero.yaml
+```
+
+An empty `monero.i2p_hostname` is skipped rather than handed to monerod, so forgetting this step costs
+anonymous inbound P2P over I2P and p2pool's announcement — the node still runs, it is just not
+reachable under that name. After a rebuild:
+
+```bash
+sudo journalctl -u i2pd | grep 'Local address'   # must end in monero.i2p_hostname
+sudo ls -l /var/lib/i2pd/monero-mainnet.dat      # a symlink into /run/secrets, owned by i2pd
+```
+
+One asymmetry to know about: p2pool announces both of its hidden addresses but dials out through only
+one SOCKS5 proxy, whose type is either tor or i2p (`--socks5-proxy-type`, and this node keeps `tor`),
+so I2P peers reach it inbound rather than the other way round. `modules/p2pool.nix` has the details.
+
+Deleting `secrets/i2p/monero_mainnet_keys.dat` retires the destination — i2pd goes back to inventing
+one on first start — and whoever can decrypt that file controls it, so a leak means moving to a new
+address. A `/var/lib/i2pd/monero-mainnet.dat` left over from before the identity was pinned is
+replaced by that symlink; if its address mattered anywhere, `import` it instead of minting.
 
 ### Adding a secret to a service
 

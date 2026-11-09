@@ -17,10 +17,11 @@
 #
 #   nix shell nixpkgs#sops -c sops secrets/secrets.yaml
 #
-# Files under ./secrets/tor are not documents but whole key files, encrypted with
-# `sops -e --input-type binary` and read back by sops-nix with `format = "binary"`: tor's onion
-# private keys carry NUL bytes and raw key material, so they cannot be a value inside a YAML file.
-# scripts/make-onion-key.sh does the encrypting; see README.md ("Provisioning an onion identity").
+# Files under ./secrets/tor and ./secrets/i2p are not documents but whole key files, encrypted with
+# `sops -e --input-type binary` and read back by sops-nix with `format = "binary"`: tor's onion token
+# and i2pd's destination keyset carry NUL bytes and raw key material, so they cannot be a value inside
+# a YAML file. scripts/make-onion-key.sh and scripts/make-i2p-key.sh do the encrypting; see README.md
+# ("Provisioning an onion identity", "Provisioning an I2P destination").
 #
 # Recipients:
 #   pgp E21BE845B37D95CBB18375EE2122D9726719FE40  git@frank.fyi (operator, re-encrypt/rotate)
@@ -34,8 +35,9 @@ creation_rules:
           - age1aw8cyfusugrj7xmdg75acfcmwcpturynele6hr3a79fls9pss4dsjgwuh4 # ssh-ed25519 root@PC-001
   # Same recipients, for the one-file-per-secret key material described above. The rule has to be
   # listed: sops picks the *first* matching path_regex, and these files carry no .yaml suffix for
-  # the rule above to catch them.
-  - path_regex: secrets/tor/.*$
+  # the rule above to catch them. One rule covers both directories so that the recipient list cannot
+  # drift between the onion identity and the I2P destination.
+  - path_regex: secrets/(tor|i2p)/.*$
     key_groups:
       - pgp:
           - E21BE845B37D95CBB18375EE2122D9726719FE40

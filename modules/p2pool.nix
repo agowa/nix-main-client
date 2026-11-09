@@ -18,6 +18,11 @@ let
   # or it does not, and that is what decides whether p2pool has an address to announce. See there for
   # the format and scripts/make-onion-key.sh for how it is created.
   onionIdentityPinned = builtins.pathExists ../secrets/tor/monerod_hs_ed25519_secret_key;
+
+  # Same file modules/i2pd.nix installs for i2pd: the repository either carries this node's I2P
+  # destination or it does not, and that is what decides whether p2pool has an I2P address to
+  # announce. See there for the format and scripts/make-i2p-key.sh for how it is created.
+  destinationKeysPinned = builtins.pathExists ../secrets/i2p/monero_mainnet_keys.dat;
 in
 {
   # services.p2pool does not exist in the pinned nixpkgs (nixos-26.05 ships the p2pool
@@ -55,6 +60,8 @@ in
       P2POOL_WALLET_ADDRESS=${config.sops.placeholder."p2pool/wallet_address"}
     '' + lib.optionalString onionIdentityPinned ''
       P2POOL_ONION_ADDRESS=${config.sops.placeholder."monero/tor_hostname"}
+    '' + lib.optionalString destinationKeysPinned ''
+      P2POOL_I2P_ADDRESS=${config.sops.placeholder."monero/i2p_hostname"}
     '';
   };
 
@@ -128,9 +135,33 @@ in
       # flag off the command line while secrets/monero.yaml still holds an empty entry: p2pool decodes
       # the address into a pubkey at startup and exits when that fails, with Restart = always spinning
       # on it - the same reason modules/services.nix skips blank addresses for monerod.
+      #
+      # I2P is announced the same way, from the destination in modules/i2pd.nix: --i2p-address takes a
+      # .b32.i2p name (from_i2p_b32() in src/i2p.h decodes it into a destination hash and p2pool exits
+      # if that fails, hence the same guard) and peers then dial it at DEFAULT_P2P_PORT_I2P = 28723,
+      # which is why that tunnel exists in modules/i2pd.nix. The two announcements are independent of
+      # each other - block_template.cpp puts the onion pubkey under keccak_onion_address_v3 and the
+      # destination hash under keccak_i2p_b32_address, both into the merge-mining extra of every block
+      # this node finds - so naming both is what spreads both.
+      #
+      # What announcing I2P does *not* buy is outgoing I2P peers: p2pool has one SOCKS5 proxy with one
+      # type (--socks5-proxy-type is auto|plain|tor|i2p), and src/p2p_server.cpp only dials .b32.i2p
+      # peers while that type is i2p. It stays `tor` here, so this node reaches onion peers through
+      # tor's SOCKS port and finds I2P peers by having them dial in. Incoming is unaffected by that
+      # choice - both tunnels hand their connections to p2pool over loopback, which upstream handles
+      # on purpose: "Incoming localhost connection. See if TOR/I2P are configured. Mixed TOR/I2P will
+      # make it choose a special TOR+I2P peer ID in get_peerId." Switching the type to i2p would flip
+      # that trade, not add to it.
+      #
+      # Worth knowing before wondering why hidden-service peers stop at ten: those loopback
+      # connections are what --in-peers-localhost counts (m_maxIncomingPeersLocalhost = 10 by default,
+      # clamped to >= 10), and Tor's and I2P's tunnels share that one counter. Raise it there if this
+      # node should accept more inbound peers than that.
     ] ++ lib.optionals onionIdentityPinned [
       "--socks5-proxy-type tor"
       "\${P2POOL_ONION_ADDRESS:+--onion-address $P2POOL_ONION_ADDRESS}"
+    ] ++ lib.optionals destinationKeysPinned [
+      "\${P2POOL_I2P_ADDRESS:+--i2p-address $P2POOL_I2P_ADDRESS}"
     ];
 
     # Note: p2pool is built with UPnP support here and will therefore try to map its P2P
