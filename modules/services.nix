@@ -24,7 +24,26 @@ let
     { secret = "monero/i2p_hostname"; port = 18085; announcePort = false; } # .b32.i2p, modules/i2pd.nix
   ];
 
+  jellyfin-ffmpeg-overlay = (final: prev: {
+    jellyfin-ffmpeg = prev.jellyfin-ffmpeg.override {
+      # Exact version depends on jellyfin-ffmpeg package
+      # In 24.11 it's ffmpeg_7-full
+      ffmpeg_7-full = prev.ffmpeg_7-full.override {
+        withMfx = false; # Older media driver
+        withVpl = true;  # New driver for Arc GPUs
+        withUnfree = true;
+        libbluray = pkgs.libbluray.override {
+          withAACS = true;
+          withBDplus = true;
+          withJava = true;
+        };
+      };
+    };
+  });
+
 in {
+  nixpkgs.overlays = [ jellyfin-ffmpeg-overlay ];
+
   # UniFi
   services.unifi = {
     enable = true;
