@@ -8,9 +8,8 @@ Host *
   CheckHostIP yes
   StrictHostKeyChecking accept-new
   ForwardAgent no
-  ControlMAster auto
+  ControlMaster auto
   ControlPersist 60s
-  PreferredAuthentications publickey
   ServerAliveInterval 11
   HashKnownHosts no
 
@@ -24,9 +23,20 @@ Host git@gitlab.agowa338.de
   IdentityFile ~/.ssh/id_ed25519
   User git
 
+Host 192.168.178.111
+  HostName 192.168.178.111
+  User root
+  Port 22
+  KexAlgorithms +diffie-hellman-group14-sha1
+  HostKeyAlgorithms +ssh-rsa
+  PubkeyAcceptedAlgorithms +ssh-rsa
+  PreferredAuthentications password
+  PubkeyAuthentication no
+
 Host *
   Port 2222
   User root
+  PreferredAuthentications publickey
 
   ";
   programs.kdeconnect.enable = false;
