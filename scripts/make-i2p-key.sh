@@ -178,6 +178,12 @@ TUNNELS
   fi
 fi
 
+# Print the address here rather than only in the summary at the bottom: it has survived everything that
+# can reject a keyset (keyinfo read it, and for a minted or imported one i2pd just loaded it), and
+# the writes that follow can still fail - the last one whenever no recipient private key is at hand.
+# The plaintext keyset gets shredded on the way out, so for such a run this line is the only copy of
+# the name (BUGS.md item 32).
+echo "address of this destination: $ADDR" >&2
 install -d -m 0755 "$(dirname "$OUT")"
 # Both flags are needed and both say why: sops picks its recipients by matching path_regex against the
 # *input* file's path, and that input is deliberately outside the repository (it is plaintext).
@@ -209,7 +215,7 @@ if [ -n "$OLD" ] && [ "$OLD" != "$ADDR" ]; then
   echo "         point at a destination that does not exist, and p2pool stops announcing something reachable." >&2
 fi
 "${SOPS[@]}" --set "[\"monero\"][\"i2p_hostname\"] \"$ADDR\"" "$MONERO_SECRETS" \
-  || die "could not write monero.i2p_hostname into $MONERO_SECRETS - that needs the private half of one of the recipients in .sops.yaml to re-encrypt the file. The identity itself is already committed; finish on a machine that has one with: $(basename "$0") record"
+  || die "could not write monero.i2p_hostname into $MONERO_SECRETS - that needs the private half of one of the recipients in .sops.yaml to re-encrypt the file. The identity itself is already committed and its address was printed above; finish on a machine that has such a key with: $(basename "$0") record. That command decrypts ${OUT#$REPO_ROOT/} to re-derive the address, so it needs the same private key - where no recipient key exists at all, nothing can be written into this file from here and the printed address is all there is (BUGS.md item 32)."
 
 echo
 echo "encrypted identity written: ${OUT#$REPO_ROOT/}"

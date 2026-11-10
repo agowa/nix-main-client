@@ -137,6 +137,11 @@ if [ -n "$IMPORTED_SHA" ] && [ "$(sha256sum < "$KEY")" != "$IMPORTED_SHA" ]; the
   die "tor rewrote the imported key instead of loading it - it would have minted a *new* address. The file is fine on its own, so this usually means it came from a v2 service or was copied with converted line endings."
 fi
 
+# Same reason as in make-i2p-key.sh (BUGS.md item 32): print the name before anything below can fail.
+# This script has no `record` mode, so if writing monero.yaml at the end needs a recipient private key
+# that is not here, this line is the only copy of the address left - tor's hostname file goes with the
+# temporary datadir.
+echo "address of this onion service: $ONION" >&2
 if command -v sops >/dev/null; then SOPS=(sops); else SOPS=(nix shell nixpkgs#sops -c sops); fi
 install -d -m 0755 "$(dirname "$OUT")"
 # Both flags are needed and both say why: sops picks its recipients by matching path_regex against
