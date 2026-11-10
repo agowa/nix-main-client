@@ -71,7 +71,8 @@ in {
     port = 5000;
   };
   services.jellyfin = {
-    enable = false;
+    enable = true;
+    logDir = "/var/log/jellyfin";
     hardwareAcceleration = {
       device = "/dev/dri/renderD128";
       enable = true;
@@ -85,7 +86,6 @@ in {
       hardwareDecodingCodecs = {
         av1 = true;
         h264 = true;
-        #mpeg2 = true;
         hevc = true;
         hevc10bit = true;
         hevcRExt10bit = true;
