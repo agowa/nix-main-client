@@ -27,7 +27,7 @@ let
 in {
   # UniFi
   services.unifi = {
-    enable = false;
+    enable = true;
     openFirewall = true;
     initialJavaHeapSize = 4096;
     unifiPackage = nixos-unstable.pkgs.unifi; # nixos-25.11's unifi package is marked as insecure
