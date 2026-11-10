@@ -283,6 +283,11 @@ the run stops with a message to finish elsewhere:
 ./scripts/make-i2p-key.sh record    # re-derive the address from the committed keyset into secrets/monero.yaml
 ```
 
+`record` needs such a key as well, because an address can only be read back out of the committed keyset
+by decrypting it - so where no recipient private key exists at all, neither command can fill this entry
+in from that machine. The script therefore prints the derived address before it attempts either write:
+that printed name is what has to travel to a machine which does have one (BUGS.md item 32).
+
 An empty `monero.i2p_hostname` is skipped rather than handed to monerod, so forgetting this step costs
 anonymous inbound P2P over I2P and p2pool's announcement — the node still runs, it is just not
 reachable under that name. After a rebuild:
