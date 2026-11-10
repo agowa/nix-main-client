@@ -157,6 +157,15 @@
             ]}
         '';
       })
+
+      (pkgs.zenmap.override {
+        nmap = pkgs.nmap.overrideAttrs (oldAttrs: {
+          postInstall = (oldAttrs.postInstall or "") + ''
+            $out/bin/nmap --script-updatedb
+          '';
+        });
+      })
+
     ];
   };
 }
