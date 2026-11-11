@@ -1,0 +1,12 @@
+{
+  "name": "ZDF Live TV",
+  "guid": "f0a3242b-6358-494a-ad7a-8d5c50c90a20",
+  "version": "1.0.0",
+  "description": "Live TV tuner for the German public broadcasters carried by ZDF: ZDF, ZDFneo, ZDFinfo, 3sat, ARTE, KiKA and phoenix. Channel stream URLs are resolved at runtime from the MediathekView Zapp API, so rotating CDN paths never have to be maintained by hand. Streams are served straight from the broadcasters' own CDNs and require a German IP address.",
+  "category": "Live TV",
+  "owner": "PC-001 (nix-main-client)",
+  "targetAbi": "10.11.0",
+  "assemblies": [
+    "Jellyfin.Plugin.ZdfLive.dll"
+  ]
+}
