@@ -120,6 +120,10 @@ in {
       };
     };
   };
+  # Live TV for the ZDF channels - installs plugins/jellyfin-plugin-zdflive into Jellyfin's plugin
+  # directory; its module carries the two one-time steps that have to stay in the web UI.
+  services.jellyfinZdfLive.enable = true;
+
   # Monero daemon. The Tor and I2P configuration lives next door (modules/tor.nix,
   # modules/i2pd.nix) but exists for this node: monerod reaches those networks with tx-proxy
   # (outbound) and anonymous-inbound (inbound), both below. modules/p2pool.nix mines through the
