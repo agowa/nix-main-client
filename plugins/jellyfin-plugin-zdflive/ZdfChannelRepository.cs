@@ -127,9 +127,25 @@ public sealed class ZdfChannelRepository
         return enabledKeys.Any(k => string.Equals(k?.Trim(), key, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>
+    /// Whether the API should be queried now. A failed lookup is honoured even by callers that ask for
+    /// a forced refresh: one guide refresh asks this host several times (channel list, then each media
+    /// source), and without the backoff an unreachable API would be retried - and warned about - once
+    /// per question instead of once per <see cref="RetryAfterFailure"/>.
+    /// </summary>
+    private bool ShouldFetch(bool forceRefresh)
+    {
+        if (_lastError is not null)
+        {
+            return DateTime.UtcNow >= _expiresUtc;
+        }
+
+        return forceRefresh || _urlByKey is null || DateTime.UtcNow >= _expiresUtc;
+    }
+
     private async Task EnsureUrlsAsync(bool forceRefresh, PluginConfiguration config, CancellationToken cancellationToken)
     {
-        if (!forceRefresh && _urlByKey is not null && DateTime.UtcNow < _expiresUtc)
+        if (!ShouldFetch(forceRefresh))
         {
             return;
         }
@@ -137,7 +153,7 @@ public sealed class ZdfChannelRepository
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!forceRefresh && _urlByKey is not null && DateTime.UtcNow < _expiresUtc)
+            if (!ShouldFetch(forceRefresh))
             {
                 return;
             }
