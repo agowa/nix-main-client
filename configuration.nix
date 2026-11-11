@@ -21,6 +21,7 @@
       ./modules/programs.nix
       ./modules/virtualisation.nix
       ./modules/services.nix
+      ./modules/jellyfin-zdf.nix
       ./modules/i2pd.nix
       ./modules/tor.nix
       ./modules/sabnzbd.nix
