@@ -72,7 +72,7 @@ in
     # override them (a second -m makes QEMU bail out).
     # ---------------------------------------------------------------------------
 
-    virtualisation.memorySize = 8192; # MiB
+    virtualisation.memorySize = 16 * 1024; # MiB
     virtualisation.cores = 4;
     virtualisation.diskSize = 20 * 1024; # MiB, sparse: the qcow2 only grows as the guest writes
 
