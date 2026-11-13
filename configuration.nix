@@ -20,6 +20,7 @@
       ./modules/sops.nix
       ./modules/programs.nix
       ./modules/virtualisation.nix
+      ./modules/vm.nix
       ./modules/services.nix
       ./modules/jellyfin-zdf.nix
       ./modules/i2pd.nix
