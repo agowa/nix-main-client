@@ -8,6 +8,46 @@ This repository contains the nix configuration for my main clients (testing stat
 nixos-rebuild switch --flake . --sudo
 ```
 
+## Test the configuration in a throwaway VM
+
+`build-vm` builds the same system as an image that boots in QEMU/KVM, which is how this
+configuration gets tested without touching PC-001:
+
+```bash
+nixos-rebuild build-vm --flake .#PC-001     # -> ./result/bin/run-PC-001-vm
+./result/bin/run-PC-001-vm                  # console in the QEMU window, or:
+QEMU_OPTS="-display none -serial mon:stdio" ./result/bin/run-PC-001-vm   # headless
+```
+
+Log in as `root` or `user`, password `test123`; both are set in `modules/vm.nix` and are public on
+purpose, since such a VM contains configuration only - never data, never a decrypted secret. The
+disk is the sparse `./PC-001.qcow2` next to where the runner was started (`NIX_DISK_IMAGE=/path`
+moves it), so discarding a test machine is just deleting that file.
+
+What makes a VM of this configuration possible is `virtualisation.vmVariant` in `modules/vm.nix`:
+it is applied on top of every module for the VM evaluation only, and it
+
+* sets those passwords (`users.mutableUsers = false`) and enables SSH password authentication,
+  which PC-001 turns off;
+* sizes the machine (8 GiB / 4 vCPUs / 20 GiB) so it also runs on a small builder such as shellbox,
+  and shrinks Unifi's Java heap accordingly;
+* switches off every service that reads a sops secret - tor, i2pd, monerod, p2pool, SABnzbd - which
+  is what makes the guest need no secrets at all: with `sops.secrets == { }` sops-nix builds no
+  installer unit, so the VM never asks for PC-001's SSH host key (see "Secrets" below);
+* switches off the services a throwaway VM cannot exercise anyway - the UniFi controller (which
+  would also pull MongoDB in, see `modules/vm.nix`) and Tor's snowflake bridge;
+* drops things that only exist on this machine's hardware: the Intel GPU driver stack and btrfs
+  scrubbing of the RAID5 volume.
+
+The data can never come along: `nixos/modules/virtualisation/qemu-vm.nix` replaces `fileSystems`,
+`swapDevices` and `boot.initrd.luks.devices` with its own values, so none of PC-001's disks - the
+RAID5 volume, its LUKS containers, `/boot` - exist inside the guest. It boots the kernel and initrd
+directly from the built system, which is also why the bootloader configuration is irrelevant here.
+
+Unlike the pre-push hook (evaluation only, see "Pre-push validation"), `build-vm` really builds the
+whole closure, so it is also the check that catches packages whose upstream download has died -
+BUGS.md item 33 was found that way.
+
 ## Listening ports and firewall exposure
 
 The firewall is enabled (`networking.firewall.enable = true`, nftables backend via `networking.nftables.enable`), so anything not listed here is dropped inbound. Loopback-only listeners need no exception, which is why many rows say *no*.
@@ -312,6 +352,14 @@ Declare it in the service's module and reference the rendered path, e.g. `module
 declares `sops.secrets."sabnzbd/newshosting/password"` and hands the placeholder
 `@sabnzbd-newshosting-password@` to `services.sabnzbd.secretValues`, so the credential is only ever
 substituted into the ini file while the service starts.
+
+Declare it **behind the enable flag of that service**, e.g.
+`sops.secrets."sabnzbd/api_key" = lib.mkIf config.services.sabnzbd.enable { ... }`. A declared
+secret has to be decryptable at activation whether or not anything reads it, so an unconditional
+declaration would lock every configuration without that service out of booting - above all the
+`build-vm` variant (`modules/vm.nix`), which cannot have PC-001's host key and therefore switches
+each secret-consuming service off instead. `nix eval --raw .#nixosConfigurations.PC-001.config.virtualisation.vmVariant.sops.secrets`
+is the check for that: it has to stay empty.
 
 ## Pre-push validation
 
