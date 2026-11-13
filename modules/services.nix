@@ -209,13 +209,16 @@ in {
   # Both units, not just monerod: modules/p2pool.nix reads the very same two entries into its
   # EnvironmentFile template and passes them as --onion-address/--i2p-address, so a new address only
   # takes effect once p2pool is restarted with the rewritten file as well.
-  sops.secrets."monero/tor_hostname" = {
+  # Both declarations are tied to services.monero.enable: a secret that no service reads still has
+  # to be decryptable at activation, so dropping them together with monerod is what lets the
+  # build-vm variant in modules/vm.nix boot this configuration without PC-001's host key.
+  sops.secrets."monero/tor_hostname" = lib.mkIf config.services.monero.enable {
     sopsFile = ../secrets/monero.yaml;
     owner = "monero";
     restartUnits = [ "monero.service" "p2pool.service" ]; # a new address only takes effect when the conf is rewritten
   };
 
-  sops.secrets."monero/i2p_hostname" = {
+  sops.secrets."monero/i2p_hostname" = lib.mkIf config.services.monero.enable {
     sopsFile = ../secrets/monero.yaml;
     owner = "monero";
     restartUnits = [ "monero.service" "p2pool.service" ];
@@ -227,14 +230,14 @@ in {
   # empty address and the daemon then exits at startup, which would take p2pool down with it. Until
   # both addresses are in sops the node simply runs without anonymous inbound P2P. sops-nix renders
   # /run/secrets during activation, before any service unit starts (modules/sops.nix).
-  systemd.services.monero.preStart = lib.mkAfter (''
+  systemd.services.monero.preStart = lib.mkIf config.services.monero.enable (lib.mkAfter (''
     monerod_conf='${config.services.monero.dataDir}/monerod.conf'
   '' + lib.concatMapStrings (inbound: ''
     address="$(tr -d '[:space:]' < '${config.sops.secrets."${inbound.secret}".path}')"
     if [ -n "$address" ]; then
       echo "anonymous-inbound=$address${lib.optionalString inbound.announcePort ":${toString inbound.port}"},127.0.0.1:${toString inbound.port}" >> "$monerod_conf"
     fi
-  '') moneroAnonymousInbound);
+  '') moneroAnonymousInbound));
 
 #  services.home-assistant = {
 #    enable = true;

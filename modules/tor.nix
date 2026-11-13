@@ -20,13 +20,19 @@ let
   # first start and the address only exists on the machine. Committing it is therefore also the
   # switch that turns the pinned identity on, with nothing else to remember to flip.
   onionIdentityPinned = builtins.pathExists onionSecretKey;
+
+  # ... and only while tor actually runs. A declared secret has to be decryptable at activation
+  # whether or not the service that reads it is enabled, so tying the declaration to
+  # services.tor.enable is what lets `nixos-rebuild build-vm` (modules/vm.nix) boot this
+  # configuration on a machine without PC-001's host key.
+  installOnionIdentity = onionIdentityPinned && config.services.tor.enable;
 in
 {
   # `format = "binary"` is what makes this work at all: sops-nix then decrypts the whole file and
   # writes it out verbatim instead of extracting a string value from a YAML document - necessary,
   # because a tor token file carries NUL bytes and raw key material and could never be a YAML
   # value. Root-only: the nixpkgs module installs it from a `+`-prefixed (root) ExecStartPre.
-  sops.secrets."tor/monerod_hs_ed25519_secret_key" = lib.mkIf onionIdentityPinned {
+  sops.secrets."tor/monerod_hs_ed25519_secret_key" = lib.mkIf installOnionIdentity {
     sopsFile = onionSecretKey;
     format = "binary";
   };
@@ -75,7 +81,7 @@ in
       onionServices."monerod" = {
         version = 3;
 
-        secretKey = lib.mkIf onionIdentityPinned
+        secretKey = lib.mkIf installOnionIdentity
           config.sops.secrets."tor/monerod_hs_ed25519_secret_key".path;
 
         map = [

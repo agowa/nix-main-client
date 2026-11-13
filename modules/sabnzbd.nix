@@ -18,10 +18,13 @@ let
     "sabnzbd/newshosting/password"
   ];
 in {
-  sops.secrets = lib.genAttrs secretNames (name: {
+  # Only while SABnzbd runs: a declared secret has to be decryptable at activation even when
+  # nothing reads it, which is why the build-vm variant in modules/vm.nix switches this service off
+  # instead of leaving the credentials required for a machine that cannot have PC-001's host key.
+  sops.secrets = lib.mkIf cfg.enable (lib.genAttrs secretNames (name: {
     owner = cfg.user; # mode stays 0400, so only root and sabnzbd can read the value
     restartUnits = [ "sabnzbd.service" ]; # the ini is regenerated in preStart, a restart re-reads everything
-  });
+  }));
 
   services.sabnzbd = {
     enable = true;
@@ -75,6 +78,12 @@ in {
 
   # SABnzbd creates its download directory with mode (0700), which leaves members of the sabnzbd
   # group unable to access it.
-  systemd.services.sabnzbd.serviceConfig.ExecStartPost =
-    "${pkgs.coreutils}/bin/chmod 0770 /var/lib/${cfg.stateDir}/Downloads /var/lib/${cfg.stateDir}/Downloads/complete /var/lib/${cfg.stateDir}/Downloads/incomplete";
+  # Gated on the service: any declaration under systemd.services.<name> makes NixOS generate that
+  # unit, and it has to be gated as a whole attribute - gating only the ExecStartPost leaf still
+  # creates systemd.services.sabnzbd, which is enough to leave an empty sabnzbd.service behind in
+  # configurations without SABnzbd (the build-vm variant among them).
+  systemd.services.sabnzbd = lib.mkIf cfg.enable {
+    serviceConfig.ExecStartPost =
+      "${pkgs.coreutils}/bin/chmod 0770 /var/lib/${cfg.stateDir}/Downloads /var/lib/${cfg.stateDir}/Downloads/complete /var/lib/${cfg.stateDir}/Downloads/incomplete";
+  };
 }

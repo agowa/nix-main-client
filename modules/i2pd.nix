@@ -22,6 +22,12 @@ let
   # onionIdentityPinned in modules/tor.nix.
   destinationKeysPinned = builtins.pathExists destinationKeys;
 
+  # ... and only while i2pd actually runs, for the same reason as installOnionIdentity in
+  # modules/tor.nix: a declared secret must be decryptable at activation even when nothing reads
+  # it, so dropping it together with the service is what makes the build-vm variant (modules/vm.nix)
+  # boot without PC-001's host key.
+  installDestinationKeys = destinationKeysPinned && config.services.i2pd.enable;
+
   # Where i2pd looks for a tunnel's key set: `keys` is resolved relative to the datadir, which is
   # /var/lib/i2pd because the nixpkgs module starts i2pd with --service. Spelled out once here
   # because it is both the name every tunnel below refers to and the file sops has to place.
@@ -47,7 +53,7 @@ in {
   #     and that is where NixOS creates this home directory for i2pd's createHome. So the MkdirAll
   #     above never gets to make it root-owned, which would have left the router unable to write its
   #     own state.
-  sops.secrets."i2p/monero_mainnet_keys" = lib.mkIf destinationKeysPinned {
+  sops.secrets."i2p/monero_mainnet_keys" = lib.mkIf installDestinationKeys {
     sopsFile = destinationKeys;
     format = "binary";
     path = "/var/lib/i2pd/${keysFileName}";

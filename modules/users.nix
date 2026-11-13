@@ -35,6 +35,11 @@
       "libvirtd"
 #      config.systemd.sockets.podman.socketConfig.SocketGroup
       "wireshark"
+    ] ++ lib.optionals config.services.sabnzbd.enable [
+      # The sabnzbd user and group are only created by the service module while it is enabled, so
+      # asking for the group unconditionally would trip the "group does not exist" assertion in
+      # every configuration that runs without SABnzbd - the build-vm variant of this system among
+      # them (modules/vm.nix).
       config.services.sabnzbd.group
     ];
     uid = 1000;

@@ -23,6 +23,12 @@ let
   # destination or it does not, and that is what decides whether p2pool has an I2P address to
   # announce. See there for the format and scripts/make-i2p-key.sh for how it is created.
   destinationKeysPinned = builtins.pathExists ../secrets/i2p/monero_mainnet_keys.dat;
+
+  # The two anonymous addresses are declared in modules/services.nix, and only while monerod runs,
+  # so p2pool may only refer to them under that same condition - a placeholder for an undeclared
+  # secret is an eval error, not an empty string.
+  announceTor = onionIdentityPinned && config.services.monero.enable;
+  announceI2P = destinationKeysPinned && config.services.monero.enable;
 in
 {
   # services.p2pool does not exist in the pinned nixpkgs (nixos-26.05 ships the p2pool
@@ -33,7 +39,9 @@ in
   # services.p2pool itself.
   imports = [ (inputs.nixos-unstable + /nixos/modules/services/networking/p2pool.nix) ];
 
-  sops.secrets."p2pool/wallet_address" = {
+  # Only while p2pool runs - see installOnionIdentity in modules/tor.nix for why a secret that no
+  # service reads still has to be decryptable, and modules/vm.nix for who turns this off.
+  sops.secrets."p2pool/wallet_address" = lib.mkIf cfg.enable {
     sopsFile = ../secrets/p2pool.yaml;
     restartUnits = [ "p2pool.service" ]; # the EnvironmentFile is only read when the unit starts
   };
@@ -49,7 +57,7 @@ in
   # handed as a file path - it wants the literal name on its command line. It is a secret for the same
   # reason monerod's copy of it is: the address identifies this node (modules/services.nix reads the
   # very same entry for monerod's anonymous-inbound).
-  sops.templates."p2pool.env" = {
+  sops.templates."p2pool.env" = lib.mkIf cfg.enable {
     owner = "p2pool";
     mode = "0440";
     # Both lines have to end in a newline of their own: nix drops the line break that directly
@@ -58,9 +66,9 @@ in
     # appended to it.
     content = ''
       P2POOL_WALLET_ADDRESS=${config.sops.placeholder."p2pool/wallet_address"}
-    '' + lib.optionalString onionIdentityPinned ''
+    '' + lib.optionalString announceTor ''
       P2POOL_ONION_ADDRESS=${config.sops.placeholder."monero/tor_hostname"}
-    '' + lib.optionalString destinationKeysPinned ''
+    '' + lib.optionalString announceI2P ''
       P2POOL_I2P_ADDRESS=${config.sops.placeholder."monero/i2p_hostname"}
     '';
   };
@@ -85,7 +93,7 @@ in
     # nano pays out fastest but smallest.)
     sidechain = "mini";
 
-    environmentFile = config.sops.templates."p2pool.env".path;
+    environmentFile = lib.mkIf cfg.enable config.sops.templates."p2pool.env".path;
     walletAddress = "$P2POOL_WALLET_ADDRESS"; # expanded by the unit's shell from the EnvironmentFile
 
     # Neither port has an option in the module, and both are pinned here instead of left to
@@ -171,11 +179,15 @@ in
 
   # createHome only covers a missing home; this also repairs ownership of a data directory
   # left behind by a manual run, and creates the parent directories on the RAID volume.
-  systemd.tmpfiles.rules = [ "d ${cfg.dataDir} 0755 p2pool p2pool - -" ];
+  # The p2pool user and group only exist while the service does (the imported module declares them
+  # under mkIf cfg.enable), so this rule has to disappear with them.
+  systemd.tmpfiles.rules = lib.optionals cfg.enable [ "d ${cfg.dataDir} 0755 p2pool p2pool - -" ];
 
   # monerod has to be there first: p2pool exits when it cannot reach the RPC/ZMQ ports,
   # and Restart = always would just spin until the daemon answers.
-  systemd.services.p2pool = {
+  # See the note in modules/sabnzbd.nix: declaring anything under systemd.services.<name> creates
+  # the unit, so gate it to keep a configuration without p2pool free of a p2pool.service.
+  systemd.services.p2pool = lib.mkIf cfg.enable {
     after = [ "monero.service" ];
     wants = [ "monero.service" ];
   };
