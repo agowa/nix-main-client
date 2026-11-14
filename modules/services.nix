@@ -124,6 +124,11 @@ in {
   # directory; its module carries the two one-time steps that have to stay in the web UI.
   services.jellyfinZdfLive.enable = true;
 
+  # Live TV for Twitch streamers - installs plugins/jellyfin-plugin-twitchlive. The channel list is not
+  # set here: it is edited while the server runs (plugin settings page, or PUT /Plugins/<id>/Configuration)
+  # and this module only seeds it on a fresh installation; see modules/jellyfin-twitch.nix.
+  services.jellyfinTwitch.enable = true;
+
   # Monero daemon. The Tor and I2P configuration lives next door (modules/tor.nix,
   # modules/i2pd.nix) but exists for this node: monerod reaches those networks with tx-proxy
   # (outbound) and anonymous-inbound (inbound), both below. modules/p2pool.nix mines through the
