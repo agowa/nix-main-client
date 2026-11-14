@@ -1,0 +1,83 @@
+<div id="TwitchLiveConfigurationPage" data-role="page" class="page type-interior pluginConfigurationPage"
+     data-controller="twitchLiveConfigController" data-title="Twitch Live TV">
+    <div data-role="content">
+        <div class="content-primary">
+            <form id="twitchLiveForm" class="twitchLiveForm">
+                <div class="verticalSection verticalSection-extrabottompadding">
+                    <h2 class="sectionTitle">Twitch Live TV</h2>
+                    <p>
+                        One channel per line. These are Twitch logins, not display names - the part of the
+                        channel URL that comes after twitch.tv/. Changes apply as soon as they are saved;
+                        run the <em>Refresh Guide</em> task to move channels between the live and offline
+                        groups in the guide immediately instead of waiting for the next refresh.
+                    </p>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="txtChannels">Channels</label>
+                    <textarea id="txtChannels" name="txtChannels" is="emby-textarea" rows="12"
+                              style="width: 100%; font-family: monospace;"
+                              placeholder="lofigirl&#10;esl_sc2"></textarea>
+                    <div class="fieldDescription">Logins are matched case-insensitively. A login that does
+                        not exist stays in the offline group, and the guide says so.</div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="checkboxLabel" for="chkIncludeOffline">
+                        <input type="checkbox" id="chkIncludeOffline" /> List channels that are not streaming
+                    </label>
+                </div>
+                <div class="fieldDescription" style="margin-top: 0;">
+                    On: every channel keeps its place and the guide says "offline". Off: only live channels
+                    appear at all, so the list grows and shrinks with each refresh.
+                </div>
+
+                <div class="inputContainer">
+                    <label class="checkboxLabel" for="chkAllowSource">
+                        <input type="checkbox" id="chkAllowSource" /> Offer Twitch's untranscoded source rendition
+                    </label>
+                </div>
+                <div class="fieldDescription" style="margin-top: 0;">
+                    Lets the playlist include the broadcaster's original stream, which is often better than
+                    the standard transcode. Maps to usher's allow_source.
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="numStatusCache">Re-check channel state after (seconds)</label>
+                    <input id="numStatusCache" type="number" is="emby-input" min="5" max="3600" step="1" />
+                    <div class="fieldDescription">One request answers every configured channel.</div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="numTokenCache">Reuse a playback token for (seconds)</label>
+                    <input id="numTokenCache" type="number" is="emby-input" min="0" max="600" step="1" />
+                    <div class="fieldDescription">Only the first request of a stream needs a token, so this does not limit how long a stream runs.</div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="numGuideAhead">Show a running stream in the guide for (minutes)</label>
+                    <input id="numGuideAhead" type="number" is="emby-input" min="15" max="1440" step="15" />
+                    <div class="fieldDescription">Twitch publishes no schedule, so this far ahead of now is a guess.</div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="txtClientId">Twitch client id</label>
+                    <input id="txtClientId" type="text" is="emby-input" autocomplete="off" />
+                    <div class="fieldDescription">The public id of the twitch.tv player. Replace it with your own from dev.twitch.tv only if you want to.</div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="txtUserAgent">User-Agent for the Twitch CDNs (optional)</label>
+                    <input id="txtUserAgent" type="text" is="emby-input" autocomplete="off" placeholder="(none)" />
+                    <div class="fieldDescription">Empty sends no header, which is what the CDNs expect today.</div>
+                </div>
+
+                <div class="buttonSubmitWrapper fieldDescription">
+                    <button type="submit" is="emby-button" class="raised button-submit block emby-button">
+                        <span>Save</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,12 @@
+{
+  "name": "Twitch Live TV",
+  "guid": "acfb8b6e-f2ce-4615-800f-77c40ffd213d",
+  "version": "1.0.0",
+  "description": "Live TV tuner for Twitch channels. The list of streamers is edited at runtime - in the plugin's configuration page or over the REST API - and live and offline channels are kept apart: only channels that are streaming right now get a playable media source, and the built-in programme guide shows what each channel is showing or says why it is dark.",
+  "category": "Live TV",
+  "owner": "PC-001 (nix-main-client)",
+  "targetAbi": "10.11.0",
+  "assemblies": [
+    "Jellyfin.Plugin.TwitchLive.dll"
+  ]
+}
