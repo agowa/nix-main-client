@@ -38,15 +38,19 @@
         ];
       };
 
-      # The ZDF Live TV Jellyfin plugin (plugins/jellyfin-plugin-zdflive). Exposed as a package so that
-      # `nix build .#jellyfin-plugin-zdf-live` works; modules/jellyfin-zdf.nix installs this same
-      # derivation and defaults to callPackage on the very same directory.
-      packages.${system}.jellyfin-plugin-zdf-live =
-        pkgs.callPackage ./plugins/jellyfin-plugin-zdflive/package.nix { };
+      # The Jellyfin plugins under plugins/, exposed so that `nix build .#jellyfin-plugin-zdf-live` and
+      # `.#jellyfin-plugin-twitch-live` build exactly what modules/jellyfin-zdf.nix and
+      # modules/jellyfin-twitch.nix install (both default to callPackage on the very same directories).
+      # Listed as one attribute set rather than one assignment per plugin, so that adding the next plugin
+      # under plugins/ is one line here instead of a second `packages.${system}` block.
+      packages.${system} = {
+        jellyfin-plugin-zdf-live = pkgs.callPackage ./plugins/jellyfin-plugin-zdflive/package.nix { };
+        jellyfin-plugin-twitch-live = pkgs.callPackage ./plugins/jellyfin-plugin-twitchlive/package.nix { };
+      };
 
       # Dotnet SDK matching jellyfin 10.11.x, for iterating on the plugin without a Nix build per try:
       #   nix develop .#plugin-dev
-      #   cd plugins/jellyfin-plugin-zdflive && dotnet build Jellyfin.Plugin.ZdfLive.csproj -c Release
+      #   cd plugins/jellyfin-plugin-twitchlive && dotnet build Jellyfin.Plugin.TwitchLive.csproj -c Release
       devShells.${system}.plugin-dev = pkgs.mkShell {
         packages = [ pkgs.dotnetCorePackages.sdk_9_0 pkgs.cacert ];
 
