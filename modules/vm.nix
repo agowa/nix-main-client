@@ -61,7 +61,11 @@ in
     # modules/users.nix are enough. In a VM that would leave the passwords above usable only on
     # the console, so they are enabled here (the guest is on QEMU's private network and no host
     # port is forwarded to it).
+    # NOTE: build-vm does NOT bind to actual interfaces on the host and uses SLIPR. Therefore
+    # these ssh is NOT reachable from other devices and ONLY form the host itself. ONLY because
+    # of that it is safe to do this with the weak default password form above.
     services.openssh.settings.PasswordAuthentication = lib.mkForce true;
+    services.openssh.settings.PermitRootLogin = lib.mkForce "yes";
 
     # ---------------------------------------------------------------------------
     # Resources. Sized for shellbox, where these VMs are built and tested: 4 vCPUs and
@@ -146,6 +150,9 @@ in
     # qemu-vm.nix replaces fileSystems (see the header). The host keeps scrubbing its real volume.
     services.btrfs.autoScrub.enable = lib.mkForce false;
 
+    # RAID5 is not available inside the vmVariant. Without this the startup will be delayed 90 seconds.
+    environment.etc.crypttab.enable = lib.mkForce false;
+
     # ---------------------------------------------------------------------------
     # Networking. modules/networking.nix is written for PC-001's two NICs: DPDK
     # openvswitch on eno1/eno2 plus the ovsbr0 bridge and its VLANs, matched by permanent
@@ -164,6 +171,28 @@ in
         IPv6AcceptRA = "yes";
       };
     };
+
+    virtualisation.forwardPorts =
+      let
+        mkForward = proto: port: {
+          from = "host";
+          host.address = "127.0.0.2";
+          # Note: Adding 10000 to the guest port to avoid conflicts with :: binds.
+          # This may fail if an extremely high port is attempted to be forwarded.
+          # But as this here is for testing only it's good enough for now.
+          host.port = port + 10000;
+          guest.port = port;
+          inherit proto;
+        };
+      in
+      (map (mkForward "tcp") [
+        # Enter TCP ports to test here:
+        22
+      ])
+      ++
+      (map (mkForward "udp") [
+        # Enter UDP ports to test here:
+      ]);
 
   };
 }

@@ -36,8 +36,14 @@ it is applied on top of every module for the VM evaluation only, and it
   installer unit, so the VM never asks for PC-001's SSH host key (see "Secrets" below);
 * switches off the services a throwaway VM cannot exercise anyway - the UniFi controller (which
   would also pull MongoDB in, see `modules/vm.nix`) and Tor's snowflake bridge;
-* drops things that only exist on this machine's hardware: the Intel GPU driver stack and btrfs
-  scrubbing of the RAID5 volume.
+* drops things that only exist on this machine's hardware: the Intel GPU driver stack, btrfs
+  scrubbing of the RAID5 volume and the `fileSystems."/mnt/vg*` mountpoint.
+* Exposes ports from within the vmVariant on the Host. Add interested ports inside of
+  `modules/vm.nix`. All ports exposed this way get added to 10000 and exposed as 127.0.0.2.
+  I.E. a bind of [::]:22 inside the VM becomes 127.0.0.2:10022 on the host. By default only
+  SSH on port TCP-22 is exposed this way. It will allow password authentication using `test123`.
+  Therefore use e.g. `ssh -o PreferredAuthentications=password -p10022 user@127.0.0.2` to login.
+  Any additional ports can be forwarded via SSH.
 
 The data can never come along: `nixos/modules/virtualisation/qemu-vm.nix` replaces `fileSystems`,
 `swapDevices` and `boot.initrd.luks.devices` with its own values, so none of PC-001's disks - the
