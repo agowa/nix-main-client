@@ -44,6 +44,7 @@ let
 in
 {
   virtualisation.vmVariant = {
+    virtualisation.isVmVariant = true;
 
     # ---------------------------------------------------------------------------
     # Login. The passwords are in a public repository on purpose: these VMs hold no

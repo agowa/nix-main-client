@@ -5,6 +5,12 @@
 { config, lib, pkgs, inputs, ... }:
 
 {
+  options.virtualisation.isVmVariant = lib.mkOption {
+    type = lib.types.bool;
+    default = false;
+    description = "Whether the VM variant is being built";
+  };
+
   imports =
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix

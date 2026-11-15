@@ -37,7 +37,7 @@ creation_rules:
   # listed: sops picks the *first* matching path_regex, and these files carry no .yaml suffix for
   # the rule above to catch them. One rule covers both directories so that the recipient list cannot
   # drift between the onion identity and the I2P destination.
-  - path_regex: secrets/(tor|i2p)/.*$
+  - path_regex: secrets/(tor|i2p|misc)/.*$
     key_groups:
       - pgp:
           - E21BE845B37D95CBB18375EE2122D9726719FE40

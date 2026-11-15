@@ -1,6 +1,14 @@
 { config, lib, pkgs, inputs, ... }:
 
 {
+  sops.secrets."misc/aacs-keydb" = lib.mkIf (!config.virtualisation.isVmVariant) {
+    sopsFile = ../secrets/misc/KEYDB.cfg;
+    format = "binary";
+  };
+  environment.etc."xdg/aacs/KEYDB.cfg" = lib.mkIf (!config.virtualisation.isVmVariant) {
+    source = config.sops.secrets."misc/aacs-keydb".path;
+  };
+
   # List packages installed in system profile. To search, run:
   # $ nix search wget
   environment.systemPackages = with pkgs; [
