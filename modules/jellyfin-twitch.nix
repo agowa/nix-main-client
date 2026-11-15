@@ -207,22 +207,38 @@ in
     # below) and the plugin directory is then exactly what this configuration says. Files are copied
     # instead of symlinked because Jellyfin rewrites meta.json when it disables a plugin, which fails on
     # a read-only nix store target.
+    #
+    # Two properties of jellyfin.service itself decide how this has to be written, both measured in the
+    # vmVariant rather than assumed:
+    #
+    #   * mkBefore instead of mkAfter. The module from nixpkgs ends its own preStart with `exit 0`
+    #     whenever <configDir>/encoding.xml already matches what NixOS wants - which is exactly what the
+    #     second start of a fresh boot did here: zero install lines executed. Anything appended behind it
+    #     is skipped on such a start, so a plugin update silently does not land. Prepended, they run.
+    #
+    #   * No -o/-g. The unit runs as User=jellyfin with an empty CapabilityBoundingSet and
+    #     SystemCallFilter = [ "@system-service" "~@privileged" ] plus SystemCallErrorNumber = "EPERM",
+    #     and chown/fchownat belong to @privileged: `install -o ... -g ...` fails with "Operation not
+    #     permitted" under systemd while succeeding in a shell, which has no seccomp filter. It would be
+    #     pointless anyway - the script already runs as that user, so created files are owned by it;
+    #     -m still applies because fchmod is permitted. Without this the copy aborts at the chown and
+    #     leaves the file behind with the unit's UMask (0077) applied instead of 0644.
     services.jellyfinTwitch.configFile = pluginConfig;
 
-    systemd.services.jellyfin.preStart = lib.mkAfter (''
-      install -d -m 0755 -o ${config.services.jellyfin.user} -g ${config.services.jellyfin.group} '${pluginPath}'
-      install -m 0644 -o ${config.services.jellyfin.user} -g ${config.services.jellyfin.group} '${cfg.package}/lib/jellyfin/plugins/TwitchLive/'* '${pluginPath}/'
+    systemd.services.jellyfin.preStart = lib.mkBefore (''
+      install -d -m 0755 '${pluginPath}'
+      install -m 0644 '${cfg.package}/lib/jellyfin/plugins/TwitchLive/'* '${pluginPath}/'
     '' + lib.optionalString cfg.manageConfig (''
       # Managed: this configuration wins, and edits made in the web UI are overwritten.
-      install -d -m 0755 -o ${config.services.jellyfin.user} -g ${config.services.jellyfin.group} '${dirOfConfigFile}'
-      install -m 0644 -o ${config.services.jellyfin.user} -g ${config.services.jellyfin.group} '${pluginConfig}' '${cfg.configFileTarget}'
+      install -d -m 0755 '${dirOfConfigFile}'
+      install -m 0644 '${pluginConfig}' '${cfg.configFileTarget}'
     '') + lib.optionalString (!cfg.manageConfig && cfg.channels != [ ]) (''
       # Seeded once: a fresh installation starts from the list in this configuration, and whatever the
       # running server makes of it afterwards is left alone. Without the guard every switch would undo
       # each streamer added through the web UI - which is exactly what manageConfig = false promises.
       if [ ! -e '${cfg.configFileTarget}' ]; then
-        install -d -m 0755 -o ${config.services.jellyfin.user} -g ${config.services.jellyfin.group} '${dirOfConfigFile}'
-        install -m 0644 -o ${config.services.jellyfin.user} -g ${config.services.jellyfin.group} '${pluginConfig}' '${cfg.configFileTarget}'
+        install -d -m 0755 '${dirOfConfigFile}'
+        install -m 0644 '${pluginConfig}' '${cfg.configFileTarget}'
       fi
     ''));
   };
