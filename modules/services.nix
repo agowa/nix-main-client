@@ -349,6 +349,7 @@ in {
         qname-minimisation-strict = false; # Allow fallback
         prefetch = true; # Perform prefetching of almost expired message cache entries.
         prefetch-key = true; # Prefetch DNSSEC DNSKEY records
+        serve-expired = true; # Serve from cache even when expired for a while
         #module-config = "dns64 validator iterator"
         neg-cache-size = "512m"; # Default 1m
         # # DNS64 RFC7050
