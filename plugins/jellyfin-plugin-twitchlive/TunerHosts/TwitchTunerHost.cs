@@ -27,13 +27,18 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
     /// <summary>The URL offered by "Detect"; only the web UI's form validation looks at it.</summary>
     internal const string VirtualUrl = "https://www.twitch.tv/directory";
 
+    /// <summary>Prefix of every channel id this plugin hands out.</summary>
+    private const string ChannelIdPrefix = TwitchChannelCatalog.HostId + "_";
+
     private readonly TwitchChannelRepository _repository;
+    private readonly LiveTvDevices _devices;
     private readonly ILogger<TwitchTunerHost> _logger;
 
     /// <summary>Initializes a new instance of the <see cref="TwitchTunerHost"/> class.</summary>
-    public TwitchTunerHost(TwitchChannelRepository repository, ILogger<TwitchTunerHost> logger)
+    public TwitchTunerHost(TwitchChannelRepository repository, LiveTvDevices devices, ILogger<TwitchTunerHost> logger)
     {
         _repository = repository;
+        _devices = devices;
         _logger = logger;
     }
 
@@ -59,6 +64,16 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
     /// <inheritdoc />
     public async Task<List<ChannelInfo>> GetChannels(bool enableCache, CancellationToken cancellationToken)
     {
+        // The server asks every registered tuner host for its channels, whether or not the operator
+        // added a device for it - see LiveTvDevices. Answering with nothing until one exists is what
+        // keeps this plugin's channels out of the list when only the other installed plugin has been
+        // set up as a tuner.
+        var device = _devices.GetPrimaryDevice();
+        if (device is null)
+        {
+            return [];
+        }
+
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         var channels = await _repository.GetChannelsAsync(!enableCache, cancellationToken).ConfigureAwait(false);
 
@@ -75,8 +90,10 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
 
             result.Add(new ChannelInfo
             {
-                // The bare login. Everything the server asks for later is looked up by this id.
-                Id = channel.Login,
+                // Prefixed with the plugin's own type: the Live TV service merges the channels of every
+                // installed tuner into one list whose items are keyed by this id alone, so a Twitch
+                // login called "zdf" would otherwise collide with another plugin's channel of that name.
+                Id = ChannelIdPrefix + channel.Login,
                 Name = channel.DisplayName,
 
                 // Cosmetic: positions in the guide. Programme data is matched by TunerChannelId below.
@@ -94,9 +111,11 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
 
                 CallSign = channel.DisplayName,
 
-                // A listings provider that is not enabled "for all tuners" filters on this and throws if
-                // it is empty, so it always has to be set.
-                TunerHostId = TwitchChannelCatalog.HostId,
+                // The id of the tuner device as stored in livetv.xml - not this plugin's type string.
+                // A listings provider that was enabled for specific tuners rather than "all" is matched
+                // against exactly this value (ListingsManager.IsListingProviderEnabledForTuner), so
+                // putting anything else here means the guide is silently skipped for every channel.
+                TunerHostId = device.Id,
 
                 ChannelType = ChannelType.TV,
                 ChannelGroup = isLive ? TwitchChannelCatalog.LiveGroup : TwitchChannelCatalog.OfflineGroup,
@@ -106,10 +125,15 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
                 IsHD = isLive ? true : null,
 
                 Tags = [isLive ? "live" : "offline"]
+
             });
         }
 
-        _logger.LogDebug("Twitch Live TV: offering {Count} of {Configured} configured channels", result.Count, channels.Count);
+        _logger.LogDebug(
+            "Twitch Live TV: offering {Count} of {Configured} configured channels on tuner device '{Device}'",
+            result.Count,
+            channels.Count,
+            device.Id);
         return result;
     }
 
@@ -250,6 +274,7 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
         var headers = new Dictionary<string, string>();
+
 
         // Twitch's CDNs answer a plain request - the playback token is already tied to this machine's IP
         // address - so no header is sent unless an operator asks for one.

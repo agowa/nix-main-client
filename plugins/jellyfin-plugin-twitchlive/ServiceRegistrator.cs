@@ -23,6 +23,7 @@ public sealed class ServiceRegistrator : IPluginServiceRegistrator
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
         serviceCollection.AddSingleton<TwitchApi>();
+        serviceCollection.AddSingleton<LiveTvDevices>();
         serviceCollection.AddSingleton<TwitchChannelRepository>();
         serviceCollection.AddSingleton<ITunerHost, TwitchTunerHost>();
 
