@@ -1,0 +1,23 @@
+
+#!/bin/sh
+
+HOOK_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+SCRIPT_DIR="$HOOK_DIR/post-checkout.d"
+
+[ -d "$SCRIPT_DIR" ] || exit 0
+
+for script in "$SCRIPT_DIR"/*.sh; do
+    [ -f "$script" ] || continue
+
+    echo "Running $(basename "$script")..."
+    "$script" "$@"
+    status=$?
+
+    if [ "$status" -ne 0 ]; then
+        echo "Post-checkout failed: $(basename "$script") (exit $status)" >&2
+        exit "$status"
+    fi
+done
+
+exit 0
+
