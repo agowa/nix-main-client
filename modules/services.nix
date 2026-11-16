@@ -307,4 +307,115 @@ in {
 #  services.miniupnpd.externalInterface = "vlan10";
 #  services.miniupnpd.natpmp = true;
 #  services.miniupnpd.upnp = true;
+
+  services.unbound = {
+    # Unbound IANA root zone files
+    # root.hints = https://www.internic.net/domain/named.root
+    # root.zone = https://www.internic.net/domain/root.zone
+    # root-servers.net.zone = https://www.internic.net/domain/root-servers.net.zone
+    # root trust anchors, done by the unbound nix module itself:
+    #   * https://data.iana.org/root-anchors/root-anchors.xml
+    #   * https://data.iana.org/root-anchors/root-anchors.p7s
+    #   * https://data.iana.org/root-anchors/icannbundle.pem
+    # arpa.zone = https://www.internic.net/domain/arpa.zone
+    # in-addr.arpa.zone = https://www.internic.net/domain/in-addr.arpa.zone
+    # ip6.arpa.zone = https://www.internic.net/domain/ip6.arpa.zone
+
+    enable = true;
+    # Claim /etc/resolv.conf
+    # TODO: consider integrating with systemd-resolved and systemd-networkd better.
+    resolveLocalQueries = true;
+    enableRootTrustAnchor = true;
+    settings = {
+      server = {
+        interface = [ "127.0.0.1" "127.0.0.53" "127.0.0.54" "::1" ];
+        #interface-automatic = true;
+        prefer-ip6 = true;
+        msg-cache-size = "1G"; # Default 4m
+        udp-connect = true;
+        rrset-cache-size = "512m"; # Default 4m
+        cache-min-ttl = 60;
+        # do-ip4 = false;
+        use-systemd = false; # No socket activation, just keep running
+        log-servfail = true;
+        root-hints = toString ../files/unbound/root.hints;
+        # trust-anchor-file = "/usr/share/dnssec-root/trusted-key.key"; # Hopefully not necessary, and done by nix.
+        hide-identity = true;
+        hide-version = true;
+        hide-trustanchor = true;
+        hide-http-user-agent = true;
+        harden-algo-downgrade = true;
+        qname-minimisation = true; # Sent minimum amount of information to upstream servers to enhance privacy. Only sent minimum required labels of the QNAME and set QTYPE to A when possible.
+        qname-minimisation-strict = false; # Allow fallback
+        prefetch = true; # Perform prefetching of almost expired message cache entries.
+        prefetch-key = true; # Prefetch DNSSEC DNSKEY records
+        #module-config = "dns64 validator iterator"
+        neg-cache-size = "512m"; # Default 1m
+        # # DNS64 RFC7050
+        #local-data = [
+        #  "ipv4only.arpa. 86400 IN AAAA 64:ff9b::c000:aa",
+        #  "ipv4only.arpa. 86400 IN AAAA 64:ff9b::c000:ab",
+        #  "ipv4only.arpa. 86400 IN A 192.0.0.170",
+        #  "ipv4only.arpa. 86400 IN A 192.0.0.171"
+        #];
+        #local-data-ptr = [
+        #  "64:ff9b::c000:aa 86400 ipv4only.arpa",
+        #  "64:ff9b::c000:ab 86400 ipv4only.arpa",
+        #  "192.0.0.170 86400 ipv4only.arpa",
+        #  "192.0.0.171 86400 ipv4only.arpa"
+        #];
+        # dns64-prefix = "64:ff9b::0/96";
+      };
+      python = {};
+      dynlib = {};
+      remote-control = {
+        control-enable = false;
+        #control-enable = true; # Enable remote control with unbound-control(8) here. set up the keys and certificates with unbound-control-setup.
+        # control-interface = "/run/unbound.control.sock";
+      };
+      auth-zone = [
+        {
+          name = ".";
+          zonefile = toString ../files/unbound/zones/root.zone;
+          # hyperlocal behavior (for-downstream: no, for-upstream: yes)
+          for-downstream = false;
+          for-upstream = true;
+          fallback-enabled = false; # Fallback doesn't work for this zone.
+        }
+        {
+          name = "root-servers.net.";
+          zonefile = toString ../files/unbound/zones/root-servers.net.zone;
+          # hyperlocal behavior (for-downstream: no, for-upstream: yes)
+          for-downstream = false;
+          for-upstream = true;
+          fallback-enabled = false; # Fallback doesn't work for this zone.
+        }
+        {
+          name = "arpa.";
+          zonefile = toString ../files/unbound/zones/arpa.zone;
+          # hyperlocal behavior (for-downstream: no, for-upstream: yes)
+          for-downstream = false;
+          for-upstream = true;
+          fallback-enabled = true;
+        }
+        {
+          name = "in-addr.arpa.";
+          zonefile = toString ../files/unbound/zones/in-addr.arpa.zone;
+          # hyperlocal behavior (for-downstream: no, for-upstream: yes)
+          for-downstream = false;
+          for-upstream = true;
+          fallback-enabled = true;
+        }
+        {
+          name = "ip6.arpa.";
+          zonefile = toString ../files/unbound/zones/ip6.arpa.zone;
+          # hyperlocal behavior (for-downstream: no, for-upstream: yes)
+          for-downstream = false;
+          for-upstream = true;
+          fallback-enabled = true;
+        }
+      ];
+    };
+  };
+
 }

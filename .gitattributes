@@ -1,0 +1,2 @@
+files/** filter=lfs diff=lfs merge=lfs -text
+secrets/misc/KEYDB.cfg filter=lfs diff=lfs merge=lfs -text

@@ -225,7 +225,8 @@
   };
 
   services.resolved = {
-    enable = true;
+    # TODO: Re-enable and integrate with unbound
+    enable = false;
     settings.Resolve = {
       DNSSEC = false;
       DNSOverTLS = "opportunistic";
