@@ -124,8 +124,13 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
                 // known either.
                 IsHD = isLive ? true : null,
 
-                Tags = [isLive ? "live" : "offline"]
+                Tags = [isLive ? "live" : "offline"],
 
+                // The account's own picture, which arrived with the live/offline answer - so a logo
+                // costs no extra request. Jellyfin stores this as the channel's primary image and
+                // downloads it the first time something asks for it (ImageController converts a remote
+                // image path to local on demand), which is why a URL is enough here.
+                ImageUrl = config.ShowChannelLogos ? channel.Status.ProfileImageUrl : null
             });
         }
 

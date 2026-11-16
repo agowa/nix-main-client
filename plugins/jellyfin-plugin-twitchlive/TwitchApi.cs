@@ -24,6 +24,10 @@ namespace Jellyfin.Plugin.TwitchLive;
 /// <param name="Title">The stream title, if live.</param>
 /// <param name="Game">The category the stream is listed under, if live.</param>
 /// <param name="Viewers">Viewer count, if Twitch reports one.</param>
+/// <param name="UserId">Twitch's numeric account id, which the Helix endpoints (schedule) key on.</param>
+/// <param name="ProfileImageUrl">The account's profile picture - used as the channel logo.</param>
+/// <param name="PreviewImageUrl">Thumbnail of the running stream, if any - used as programme artwork.</param>
+/// <param name="GameBoxArtUrl">Cover art of the category being streamed, if any.</param>
 public sealed record TwitchStreamStatus(
     string Login,
     string DisplayName,
@@ -32,7 +36,11 @@ public sealed record TwitchStreamStatus(
     string? StreamType,
     string? Title,
     string? Game,
-    int? Viewers);
+    int? Viewers,
+    string? UserId = null,
+    string? ProfileImageUrl = null,
+    string? PreviewImageUrl = null,
+    string? GameBoxArtUrl = null);
 
 /// <summary>A playback token for one channel.</summary>
 /// <param name="Value">The token itself; it is bound to the requesting IP address and expires.</param>
@@ -75,6 +83,12 @@ public sealed class TwitchApi
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<TwitchApi> _logger;
 
+    /// <summary>
+    /// Set once Twitch has refused the optional artwork fields for this client id. Kept for the life of
+    /// the process: asking again per refresh would pay the same failure every time.
+    /// </summary>
+    private bool _artworkRejected;
+
     /// <summary>Initializes a new instance of the <see cref="TwitchApi"/> class.</summary>
     public TwitchApi(IHttpClientFactory httpClientFactory, ILogger<TwitchApi> logger)
     {
@@ -100,27 +114,26 @@ public sealed class TwitchApi
             return result;
         }
 
-        // One HTTP request even for a long list: the endpoint takes an array of queries.
-        var documents = new List<string>();
-        foreach (var chunk in Chunk(logins, TwitchChannelCatalog.AliasesPerQuery))
+        try
         {
-            documents.Add(BuildStatusDocument(chunk, documents.Count));
+            await ReadStatusesAsync(logins, withArtwork: !_artworkRejected, into: result, cancellationToken).ConfigureAwait(false);
         }
-
-        using var response = await PostAsync(documents.Count == 1 ? documents[0] : "[" + string.Join(",", documents) + "]", cancellationToken).ConfigureAwait(false);
-        using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        if (document.RootElement.ValueKind == JsonValueKind.Object)
+        catch (InvalidOperationException ex) when (_artworkRejected || ex.Message.Contains("Cannot query field", StringComparison.OrdinalIgnoreCase))
         {
-            ReadStatusRoot(document.RootElement, result);
-        }
-        else if (document.RootElement.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var element in document.RootElement.EnumerateArray())
+            // The live state and the pictures come back in one request, which is why a field Twitch
+            // renames or stops offering to this client id would otherwise take the whole guide down -
+            // every channel reads as offline, because nothing was answered. Ask again for just the
+            // state, remember that this schema has no artwork here and keep working without logos.
+            if (!_artworkRejected)
             {
-                ReadStatusRoot(element, result);
+                _artworkRejected = true;
+                _logger.LogWarning(
+                    "Twitch Live TV: this client's schema rejected part of the channel query ({Error}); continuing without channel art",
+                    ex.Message);
             }
+
+            result.Clear();
+            await ReadStatusesAsync(logins, withArtwork: false, into: result, cancellationToken).ConfigureAwait(false);
         }
 
         // Anything the answer did not cover has to be reported as unknown rather than left out: a
@@ -134,6 +147,41 @@ public sealed class TwitchApi
         }
 
         return result;
+    }
+
+    /// <summary>Sends one channel-state request and reads the answer into <paramref name="into"/>.</summary>
+    private async Task ReadStatusesAsync(
+        IReadOnlyList<string> logins,
+        bool withArtwork,
+        Dictionary<string, TwitchStreamStatus> into,
+        CancellationToken cancellationToken)
+    {
+        // One HTTP request even for a long list: the endpoint takes an array of queries.
+        var documents = new List<string>();
+        foreach (var chunk in Chunk(logins, TwitchChannelCatalog.AliasesPerQuery))
+        {
+            documents.Add(BuildStatusDocument(chunk, documents.Count, withArtwork));
+        }
+
+        using var response = await PostAsync(documents.Count == 1 ? documents[0] : "[" + string.Join(",", documents) + "]", cancellationToken).ConfigureAwait(false);
+#if NET9_0_OR_GREATER
+        using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+#else
+        using var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+#endif
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        if (document.RootElement.ValueKind == JsonValueKind.Object)
+        {
+            ReadStatusRoot(document.RootElement, into);
+        }
+        else if (document.RootElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var element in document.RootElement.EnumerateArray())
+            {
+                ReadStatusRoot(element, into);
+            }
+        }
     }
 
     /// <summary>Fetches a playback token for one channel.</summary>
@@ -229,11 +277,19 @@ public sealed class TwitchApi
             }
 
             var displayName = ReadString(property.Value, "displayName") ?? login;
+            var userId = ReadString(property.Value, "id");
+            var profileImage = ReadAbsoluteUrl(ReadString(property.Value, "profileImageURL"));
 
             if (!property.Value.TryGetProperty("stream", out var stream) || stream.ValueKind != JsonValueKind.Object)
             {
-                into[login] = new TwitchStreamStatus(login, displayName, true, false, null, null, null, null);
+                into[login] = new TwitchStreamStatus(login, displayName, true, false, null, null, null, null, userId, profileImage);
                 continue;
+            }
+
+            string? boxArt = null;
+            if (stream.TryGetProperty("game", out var game) && game.ValueKind == JsonValueKind.Object)
+            {
+                boxArt = ReadAbsoluteUrl(ReadString(game, "boxArtURL"));
             }
 
             into[login] = new TwitchStreamStatus(
@@ -243,9 +299,24 @@ public sealed class TwitchApi
                 true,
                 ReadString(stream, "type"),
                 ReadString(stream, "title"),
-                stream.TryGetProperty("game", out var game) && game.ValueKind == JsonValueKind.Object ? ReadString(game, "displayName") : null,
-                stream.TryGetProperty("viewersCount", out var viewers) && viewers.TryGetInt32(out var count) ? count : null);
+                game.ValueKind == JsonValueKind.Object ? ReadString(game, "displayName") : null,
+                stream.TryGetProperty("viewersCount", out var viewers) && viewers.TryGetInt32(out var count) ? count : null,
+                userId,
+                profileImage,
+                ReadAbsoluteUrl(ReadString(stream, "previewImageURL")),
+                boxArt);
         }
+    }
+
+    /// <summary>Twitch answers some image fields as "//cdn..."; a channel image has to be absolute.</summary>
+    private static string? ReadAbsoluteUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return null;
+        }
+
+        return url.StartsWith("//", StringComparison.Ordinal) ? "https:" + url : url;
     }
 
     private static string? ReadString(JsonElement element, string name)
@@ -271,7 +342,7 @@ public sealed class TwitchApi
     /// "operation with name 'x' not found" otherwise - and it differs per document because a batch may
     /// not contain two operations of the same name.
     /// </remarks>
-    private static string BuildStatusDocument(IReadOnlyList<string> logins, int index)
+    private static string BuildStatusDocument(IReadOnlyList<string> logins, int index, bool withArtwork)
     {
         var variables = new Dictionary<string, string>(StringComparer.Ordinal);
         var selections = new List<string>(logins.Count);
@@ -281,7 +352,15 @@ public sealed class TwitchApi
         {
             var name = "v" + i.ToString(CultureInfo.InvariantCulture);
             declarations.Add("$" + name + ": String!");
-            selections.Add(TwitchChannelCatalog.AliasFor(logins[i]) + ": user(login: $" + name + ") { displayName stream { type title game { displayName } viewersCount } }");
+            // id is what the Helix schedule endpoint keys on. profileImageURL arrives with the rest, so
+            // a channel logo costs no extra request; previewImageURL and boxArtURL are the two pictures
+            // Jellyfin can show for a programme (see TwitchGuideProvider). Note the capital "URL" -
+            // spelled differently this whole query is rejected, hence the fallback in GetStatusesAsync.
+            var userFields = withArtwork
+                ? "id displayName profileImageURL(width: 300) stream { type title viewersCount previewImageURL(width: 1280, height: 720) game { displayName boxArtURL(width: 600, height: 900) } }"
+                : "id displayName stream { type title viewersCount game { displayName } }";
+
+            selections.Add(TwitchChannelCatalog.AliasFor(logins[i]) + ": user(login: $" + name + ") { " + userFields + " }");
             variables[name] = logins[i];
         }
 
@@ -305,6 +384,14 @@ public sealed class TwitchApi
         };
 
         request.Headers.TryAddWithoutValidation("Client-Id", config.ClientId);
+
+        // gql.twitch.tv accepts an account token and answers as that account. Nothing here needs it,
+        // but sending it when the operator configured one keeps this endpoint and the Helix calls
+        // (schedule, follows) using the same identity - and Twitch's own player does exactly this.
+        if (!string.IsNullOrWhiteSpace(config.AuthToken))
+        {
+            request.Headers.TryAddWithoutValidation("Authorization", "OAuth " + config.AuthToken.Trim());
+        }
 
         var client = _httpClientFactory.CreateClient(NamedClient.Default);
         var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
