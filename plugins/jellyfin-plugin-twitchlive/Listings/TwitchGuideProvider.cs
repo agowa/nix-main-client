@@ -24,9 +24,11 @@ namespace Jellyfin.Plugin.TwitchLive.Listings;
 ///   <item><description>A running stream becomes one programme carrying the stream title and category, starting when this plugin first saw that title and reaching <see cref="PluginConfiguration.GuideAheadMinutes"/> into the future.</description></item>
 ///   <item><description>An offline channel gets an explicit "offline" entry instead of a blank slot, which is what tells the difference between a streamer who is asleep and a guide that was never filled in.</description></item>
 /// </list>
-/// Both are guesses about the future - Twitch publishes no schedule - so the horizon is deliberately
-/// short and configurable. Programme ids change when a title changes, which is how Jellyfin learns that
-/// a stream moved on to something else.
+/// Where the broadcaster publishes one, these are joined by the slots from their own Schedule tab
+/// (<see cref="TwitchChannelRepository.GetScheduleAsync"/>), which are not guesses and end a live entry
+/// early instead of letting it sit on top of an announced appointment. Everything generated here is a
+/// guess about the future, so its horizon stays short and configurable; programme ids change when a
+/// title changes, which is how Jellyfin learns that a stream moved on to something else.
 /// </remarks>
 public sealed class TwitchGuideProvider : IListingsProvider
 {
@@ -92,73 +94,59 @@ public sealed class TwitchGuideProvider : IListingsProvider
 
         foreach (var channel in channels)
         {
+            // What the broadcaster put on their own Schedule tab. Empty for most channels - Twitch
+            // makes nobody publish one - and cached per channel for six hours, so this is cheap even
+            // for a long list. Everything below is written so that a channel with no schedule behaves
+            // exactly as it did before this existed.
+            var scheduled = await _repository.GetScheduleAsync(channel.Login, channel.Status.UserId, cancellationToken)
+                .ConfigureAwait(false);
+
             if (channel.Status.IsLive)
             {
-                // A stream that has been running for hours started before the requested window; that is
-                // normal and better than pretending it began now.
-                var startUtc = channel.TitleSinceUtc ?? channel.LiveSinceUtc ?? startDateUtc;
-                if (startUtc > endDateUtc || horizonUtc < startDateUtc)
+                var live = BuildLiveProgram(channel, scheduled, startDateUtc, horizonUtc);
+
+                // Callers ask for a window ("what is on tonight"), and the guide also asks for one hour
+                // of history; an entry entirely outside it would be answered as if it belonged there.
+                if (live.EndDate > startDateUtc && live.StartDate < endDateUtc)
+                {
+                    programs.Add(live);
+                }
+            }
+            else
+            {
+                // Offline: say so instead of leaving the slot empty - but only up to the point where
+                // the channel's own schedule claims something is about to start, or "Offline" would sit
+                // on top of an appointment. A login Twitch does not know gets its own wording, because
+                // that is a mistake in the settings rather than a streamer who is asleep.
+                // The first slot that has not started yet, if any. Its start is where "Offline" stops
+                // being true, so the two entries never claim the same hour.
+                var upcoming = scheduled.FirstOrDefault(i => i.StartUtc > nowUtc);
+                var offlineUntil = upcoming is null || upcoming.StartUtc >= horizonUtc
+                    ? horizonUtc
+                    : upcoming.StartUtc;
+
+                if (offlineUntil - nowUtc > TimeSpan.FromMinutes(5) && offlineUntil > startDateUtc)
+                {
+                    programs.Add(BuildOfflineProgram(channel, startDateUtc, offlineUntil, nowUtc));
+                }
+            }
+
+            foreach (var slot in scheduled)
+            {
+                // The live entry already covers what is on air; a slot that overlaps it would be the
+                // same hour twice in the guide.
+                if (channel.Status.IsLive && slot.StartUtc < horizonUtc)
                 {
                     continue;
                 }
 
-                var title = string.IsNullOrWhiteSpace(channel.Status.Title) ? "Live" : channel.Status.Title.Trim();
-                var overview = new List<string>();
-
-                if (!string.IsNullOrWhiteSpace(channel.Status.Game))
+                if (slot.EndUtc <= startDateUtc || slot.StartUtc >= endDateUtc)
                 {
-                    overview.Add(channel.Status.Game!);
+                    continue;
                 }
 
-                if (channel.Status.Viewers is > 0)
-                {
-                    overview.Add(string.Format(CultureInfo.InvariantCulture, "{0:N0} watching", channel.Status.Viewers.Value));
-                }
-
-                if (channel.LiveSinceUtc is not null)
-                {
-                    var since = channel.LiveSinceUtc.Value.ToLocalTime();
-                    overview.Add("live since " + since.ToString("HH:mm", CultureInfo.InvariantCulture) + " local");
-                }
-
-                programs.Add(new ProgramInfo
-                {
-                    Id = StableId(channel.Login, title),
-                    ChannelId = channel.Login,
-                    Name = title,
-                    Overview = string.Join(" - ", overview),
-                    ShortOverview = channel.Status.Game,
-                    StartDate = startUtc,
-                    EndDate = horizonUtc < endDateUtc ? horizonUtc : endDateUtc,
-
-                    // The guide marks these as live rather than as a recording of something scheduled.
-                    IsLive = true,
-                    Genres = string.IsNullOrWhiteSpace(channel.Status.Game) ? [] : [channel.Status.Game!],
-                    HomePageUrl = "https://www.twitch.tv/" + channel.Login,
-                    Etag = StableId(channel.Login, title, startUtc.ToString("yyyyMMddHHmm", CultureInfo.InvariantCulture))
-                });
-
-                continue;
+                programs.Add(BuildScheduledProgram(channel, slot));
             }
-
-            // Offline: say so instead of leaving the slot empty. A login Twitch does not know gets its own
-            // wording, because that is a mistake in the settings rather than a streamer who is asleep.
-            var name = channel.Status.Exists ? "Offline" : "No such Twitch account";
-            programs.Add(new ProgramInfo
-            {
-                Id = StableId(channel.Login, name),
-                ChannelId = channel.Login,
-                Name = name,
-                Overview = channel.Status.Exists
-                    ? $"{channel.DisplayName} is not streaming. Tune in when they go live, or check https://www.twitch.tv/{channel.Login}"
-                    : $"'{channel.Login}' is not a Twitch account - fix the login in the Twitch Live TV plugin settings.",
-                StartDate = startDateUtc < nowUtc ? startDateUtc : nowUtc,
-
-                // Only as far as the live entries reach, so one refresh covers the same span either way.
-                EndDate = horizonUtc < endDateUtc ? horizonUtc : endDateUtc,
-                IsLive = false,
-                Etag = StableId(channel.Login, name, "offline")
-            });
         }
 
         _logger.LogDebug(
@@ -167,6 +155,140 @@ public sealed class TwitchGuideProvider : IListingsProvider
             channels.Count);
 
         return programs;
+    }
+
+    /// <summary>Builds the entry for a stream that is running right now.</summary>
+    /// <remarks>
+    /// A running stream has no published end, so it reaches <paramref name="horizonUtc"/> - except
+    /// where the channel's own schedule says the next slot begins, which is a better guess than any
+    /// timeout and stops "Lofi Girl 24/7" from sitting on top of an announced one-off.
+    /// </remarks>
+    private static ProgramInfo BuildLiveProgram(
+        TwitchChannel channel,
+        IReadOnlyList<TwitchScheduledItem> scheduled,
+        DateTime startDateUtc,
+        DateTime horizonUtc)
+    {
+        // A stream that has been running for hours started before the requested window; that is
+        // normal and better than pretending it began now.
+        var startUtc = channel.TitleSinceUtc ?? channel.LiveSinceUtc ?? startDateUtc;
+
+        var endUtc = horizonUtc;
+        foreach (var slot in scheduled)
+        {
+            if (slot.StartUtc > startUtc && slot.StartUtc < endUtc)
+            {
+                endUtc = slot.StartUtc;
+                break;
+            }
+        }
+
+        var title = string.IsNullOrWhiteSpace(channel.Status.Title) ? "Live" : channel.Status.Title.Trim();
+        var overview = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(channel.Status.Game))
+        {
+            overview.Add(channel.Status.Game!);
+        }
+
+        if (channel.Status.Viewers is > 0)
+        {
+            overview.Add(string.Format(CultureInfo.InvariantCulture, "{0:N0} watching", channel.Status.Viewers.Value));
+        }
+
+        if (channel.LiveSinceUtc is not null)
+        {
+            var since = channel.LiveSinceUtc.Value.ToLocalTime();
+            overview.Add("live since " + since.ToString("HH:mm", CultureInfo.InvariantCulture) + " local");
+        }
+
+        // The stream thumbnail is the picture Twitch itself uses for this broadcast, so it doubles as
+        // both the tile and the backdrop. Jellyfin reads all four fields below off ProgramInfo when it
+        // writes the programme item (GuideManager.UpdateImage).
+        var preview = channel.Status.PreviewImageUrl;
+
+        return new ProgramInfo
+        {
+            Id = StableId(channel.Login, title, startUtc.ToString("yyyyMMddHH", CultureInfo.InvariantCulture)),
+            ChannelId = channel.Login,
+            Name = title,
+            Overview = string.Join(" - ", overview),
+            ShortOverview = channel.Status.Game,
+            StartDate = startUtc,
+            EndDate = endUtc < startDateUtc ? startDateUtc.AddMinutes(1) : endUtc,
+
+            // The guide marks these as live rather than as a recording of something scheduled.
+            IsLive = true,
+            Genres = string.IsNullOrWhiteSpace(channel.Status.Game) ? [] : [channel.Status.Game!],
+            HomePageUrl = "https://www.twitch.tv/" + channel.Login,
+            ImageUrl = preview ?? channel.Status.GameBoxArtUrl,
+            ThumbImageUrl = preview,
+            BackdropImageUrl = preview,
+            LogoImageUrl = channel.Status.ProfileImageUrl,
+            Etag = StableId(channel.Login, title, startUtc.ToString("yyyyMMddHHmm", CultureInfo.InvariantCulture))
+        };
+    }
+
+    /// <summary>Builds the entry that explains why a channel is dark.</summary>
+    private static ProgramInfo BuildOfflineProgram(TwitchChannel channel, DateTime startDateUtc, DateTime untilUtc, DateTime nowUtc)
+    {
+        var name = channel.Status.Exists ? "Offline" : "No such Twitch account";
+        return new ProgramInfo
+        {
+            Id = StableId(channel.Login, name),
+            ChannelId = channel.Login,
+            Name = name,
+            Overview = channel.Status.Exists
+                ? $"{channel.DisplayName} is not streaming. Tune in when they go live, or check https://www.twitch.tv/{channel.Login}"
+                : $"'{channel.Login}' is not a Twitch account - fix the login in the Twitch Live TV plugin settings.",
+            StartDate = startDateUtc < nowUtc ? startDateUtc : nowUtc,
+
+            // Only as far as the live entries reach, so one refresh covers the same span either way.
+            EndDate = untilUtc,
+            IsLive = false,
+            LogoImageUrl = channel.Status.ProfileImageUrl,
+            Etag = StableId(channel.Login, name, "offline")
+        };
+    }
+
+    /// <summary>Builds an entry out of one slot of the broadcaster's published schedule.</summary>
+    private static ProgramInfo BuildScheduledProgram(TwitchChannel channel, TwitchScheduledItem slot)
+    {
+        var overview = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(slot.Category))
+        {
+            overview.Add(slot.Category!);
+        }
+
+        overview.Add(slot.IsRecurring ? "recurring schedule slot" : "announced once");
+        overview.Add("as published by the channel");
+
+        // A slot naming the category that is streaming right now can borrow its cover art; anything
+        // else would mean a lookup per category for data the broadcaster may change tomorrow.
+        var sameCategory = !string.IsNullOrWhiteSpace(slot.Category)
+                           && string.Equals(slot.Category, channel.Status.Game, StringComparison.OrdinalIgnoreCase);
+
+        return new ProgramInfo
+        {
+            Id = StableId(channel.Login, "schedule", slot.Id),
+            ChannelId = channel.Login,
+            Name = slot.Title,
+            Overview = string.Join(" - ", overview),
+            ShortOverview = slot.Category,
+            StartDate = slot.StartUtc,
+            EndDate = slot.EndUtc,
+
+            // Not live: nothing is being broadcast yet, and Jellyfin uses this to decide whether the
+            // entry may be played or only looked at.
+            IsLive = false,
+            Genres = string.IsNullOrWhiteSpace(slot.Category) ? [] : [slot.Category!],
+            HomePageUrl = "https://www.twitch.tv/" + channel.Login,
+            ImageUrl = sameCategory ? channel.Status.GameBoxArtUrl : null,
+            BackdropImageUrl = sameCategory ? channel.Status.PreviewImageUrl : null,
+            LogoImageUrl = channel.Status.ProfileImageUrl,
+            Etag = StableId(channel.Login, "schedule", slot.Id, slot.StartUtc.ToString("yyyyMMddHHmm", CultureInfo.InvariantCulture))
+        };
     }
 
     /// <inheritdoc />
