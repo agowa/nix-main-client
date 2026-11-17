@@ -18,8 +18,20 @@ const FALLBACK = {
     TokenCacheSeconds: 120,
     GuideAheadMinutes: 240,
     AllowSourceQuality: true,
-    UserAgent: ""
+    UserAgent: "",
+    AuthToken: "",
+    UseTokenForPlayback: true,
+    ImportFollowedChannels: false,
+    MaxFollowedChannels: 200,
+    FollowCacheMinutes: 360,
+    UseTwitchSchedule: true,
+    ScheduleAheadDays: 7,
+    ShowChannelLogos: true
 };
+
+/** Twitch's own endpoints. Both answer cross-origin on purpose (they serve browser apps). */
+const TWITCH_VALIDATE_URL = "https://id.twitch.tv/oauth2/validate";
+const TWITCH_FOLLOWED_URL = "https://api.twitch.tv/helix/channels/followed";
 
 function headers(withBody) {
     const h = { "X-Emby-Token": ApiClient.accessToken() };
@@ -33,6 +45,27 @@ function configurationUrl() {
     return ApiClient.getUrl("Plugins/" + PLUGIN_ID + "/Configuration");
 }
 
+/** Turns anything thrown or returned into one line a human can act on. */
+async function describeFailure(error, response) {
+    if (response) {
+        let detail = "";
+        try {
+            const text = await response.text();
+            detail = text ? " - " + text.substring(0, 200) : "";
+        } catch (ignored) {
+            // A body we could not read is not worth losing the status code over.
+        }
+
+        return "HTTP " + response.status + " " + (response.statusText || "") + detail;
+    }
+
+    if (!error) {
+        return "unknown error";
+    }
+
+    return error.message || String(error);
+}
+
 export default class TwitchLiveConfigPage {
     constructor(view) {
         this.view = view;
@@ -41,15 +74,25 @@ export default class TwitchLiveConfigPage {
         this.channels = view.querySelector("#txtChannels");
         this.includeOffline = view.querySelector("#chkIncludeOffline");
         this.allowSource = view.querySelector("#chkAllowSource");
+        this.showLogos = view.querySelector("#chkShowLogos");
+        this.useSchedule = view.querySelector("#chkUseSchedule");
+        this.scheduleDays = view.querySelector("#numScheduleDays");
         this.statusCache = view.querySelector("#numStatusCache");
         this.tokenCache = view.querySelector("#numTokenCache");
         this.guideAhead = view.querySelector("#numGuideAhead");
         this.clientId = view.querySelector("#txtClientId");
         this.userAgent = view.querySelector("#txtUserAgent");
+        this.authToken = view.querySelector("#txtAuthToken");
+        this.useTokenForPlayback = view.querySelector("#chkUseTokenForPlayback");
+        this.importFollows = view.querySelector("#chkImportFollows");
+        this.followLimit = view.querySelector("#numFollowLimit");
+        this.tokenStatus = view.querySelector("#tokenStatus");
 
         // The form is inside a page that stays in the DOM after navigating away, so bind once here
         // rather than on every show.
         this.form.addEventListener("submit", (event) => this.submit(event));
+        view.querySelector("#btnCheckToken").addEventListener("click", () => this.checkToken());
+        view.querySelector("#btnLoadFollows").addEventListener("click", () => this.addFollows());
 
         this.load();
     }
@@ -76,66 +119,205 @@ export default class TwitchLiveConfigPage {
         this.channels.value = list.join("\n");
         this.includeOffline.checked = config.IncludeOfflineChannels !== false;
         this.allowSource.checked = config.AllowSourceQuality !== false;
+        this.showLogos.checked = config.ShowChannelLogos !== false;
+        this.useSchedule.checked = config.UseTwitchSchedule !== false;
+        this.useTokenForPlayback.checked = config.UseTokenForPlayback !== false;
+        this.importFollows.checked = config.ImportFollowedChannels === true;
+        this.scheduleDays.value = config.ScheduleAheadDays;
+        this.followLimit.value = config.MaxFollowedChannels;
         this.statusCache.value = config.StatusCacheSeconds;
         this.tokenCache.value = config.TokenCacheSeconds;
         this.guideAhead.value = config.GuideAheadMinutes;
         this.clientId.value = config.ClientId || "";
         this.userAgent.value = config.UserAgent || "";
+        this.authToken.value = config.AuthToken || "";
     }
 
-    async submit(event) {
-        event.preventDefault();
-
+    /** Reads the form into the shape the plugin's configuration class expects. */
+    collect() {
         // One login per line, but accept commas too - copying a list out of a chat or a spreadsheet
-        // tends to produce them.
+        // tends to produce them. Follows are not stored here on purpose: they come from Twitch at
+        // runtime, so pasting them in is only ever a convenience (see addFollows).
         const channels = (this.channels.value || "")
             .split(/[\s,]+/)
             .map((login) => login.trim().toLowerCase())
             .filter((login) => login.length > 0);
 
-        if (!channels.length && !window.confirm("No channels left - the tuner will offer nothing. Save anyway?")) {
-            return;
-        }
-
-        const updated = Object.assign({}, this.config || FALLBACK, {
+        return Object.assign({}, this.config || FALLBACK, {
             Channels: channels,
             IncludeOfflineChannels: this.includeOffline.checked,
             AllowSourceQuality: this.allowSource.checked,
+            ShowChannelLogos: this.showLogos.checked,
+            UseTwitchSchedule: this.useSchedule.checked,
+            ScheduleAheadDays: Math.min(28, Math.max(1, parseInt(this.scheduleDays.value, 10) || 7)),
+            MaxFollowedChannels: Math.min(2000, Math.max(1, parseInt(this.followLimit.value, 10) || 200)),
             StatusCacheSeconds: Math.max(5, parseInt(this.statusCache.value, 10) || 60),
             TokenCacheSeconds: Math.max(0, parseInt(this.tokenCache.value, 10) || 0),
             GuideAheadMinutes: Math.max(15, parseInt(this.guideAhead.value, 10) || 240),
             ClientId: (this.clientId.value || "").trim() || FALLBACK.ClientId,
-            UserAgent: (this.userAgent.value || "").trim()
+            UserAgent: (this.userAgent.value || "").trim(),
+            AuthToken: (this.authToken.value || "").trim(),
+            UseTokenForPlayback: this.useTokenForPlayback.checked,
+            ImportFollowedChannels: this.importFollows.checked
         });
+    }
+
+    async submit(event) {
+        event.preventDefault();
+
+        const updated = this.collect();
+
+        if (!updated.Channels.length && !updated.ImportFollowedChannels
+            && !window.confirm("No channels left and no follow import - the tuner will offer nothing. Save anyway?")) {
+            return;
+        }
 
         try {
+            // POST, not PUT: Jellyfin's PluginsController only offers [HttpPost("{pluginId}/Configuration")]
+            // (10.11 as far back as it exists), and a PUT is answered 405 - which used to surface here as
+            // the dashboard's error dialog reading .status off an Error object, i.e. "undefined".
             const response = await fetch(configurationUrl(), {
-                method: "PUT",
+                method: "POST",
                 headers: headers(true),
                 body: JSON.stringify(updated)
             });
 
             if (!response.ok) {
-                throw new Error("HTTP " + response.status);
+                this.status("Could not save: " + await describeFailure(null, response), true);
+                return;
             }
 
             this.config = updated;
-            this.channels.value = channels.join("\n");
+            this.channels.value = updated.Channels.join("\n");
 
-            // The same toast the rest of the dashboard uses, when it is reachable from here.
-            if (window.Dashboard && typeof Dashboard.processPluginConfigurationUpdateResult === "function") {
-                Dashboard.processPluginConfigurationUpdateResult(response);
-            } else {
-                window.alert("Saved.");
+            // The same toast the rest of the dashboard uses when it is reachable from here; the inline
+            // line underneath always says something, so the page never depends on dashboard internals.
+            if (window.Dashboard && typeof window.Dashboard.processPluginConfigurationUpdateResult === "function") {
+                window.Dashboard.processPluginConfigurationUpdateResult();
             }
+
+            this.status("Saved. Run the Refresh Guide task to apply it to the guide immediately.");
         } catch (error) {
             console.error("[Twitch Live TV] could not save the configuration", error);
-
-            if (window.Dashboard && typeof Dashboard.processErrorResponse === "function") {
-                Dashboard.processErrorResponse(error);
-            } else {
-                window.alert("Could not save: " + error.message);
-            }
+            this.status("Could not save: " + await describeFailure(error), true);
         }
+    }
+
+    /** Asks Twitch whose token is in the field, without saving anything first. */
+    async checkToken() {
+        const token = (this.authToken.value || "").trim();
+        if (!token) {
+            this.status("No token to check - the plugin works anonymously without one.");
+            return;
+        }
+
+        this.status("Checking with Twitch...");
+
+        try {
+            const info = await this.validateToken(token);
+            const scopes = (info.scopes && info.scopes.length) ? info.scopes.join(", ") : "(none)";
+            let note = "";
+
+            if (!info.scopes || info.scopes.indexOf("user:read:follows") === -1) {
+                note = " Without user:read:follows the follow list stays unavailable.";
+            }
+
+            this.status("Token is valid for '" + (info.login || "?") + "' (user id " + (info.user_id || "?")
+                + "), scopes: " + scopes + "." + note);
+        } catch (error) {
+            this.status("Twitch refused this token: " + error.message, true);
+        }
+    }
+
+    /** Pulls the follow list of the token's account into the channel box. */
+    async addFollows() {
+        const token = (this.authToken.value || "").trim();
+        if (!token) {
+            this.status("Add my follows needs an OAuth token above - Twitch only gives the list to the account that owns it.", true);
+            return;
+        }
+
+        this.status("Reading your follow list from Twitch...");
+
+        try {
+            const info = await this.validateToken(token);
+            const clientId = (this.clientId.value || "").trim() || FALLBACK.ClientId;
+            const limit = Math.min(2000, Math.max(1, parseInt(this.followLimit.value, 10) || 200));
+
+            const existing = (this.channels.value || "")
+                .split(/[\s,]+/)
+                .map((login) => login.trim().toLowerCase())
+                .filter((login) => login.length > 0);
+
+            let cursor = null;
+            let added = 0;
+            let pages = 0;
+
+            do {
+                const params = new URLSearchParams({ user_id: info.user_id, first: "100" });
+                if (cursor) {
+                    params.set("after", cursor);
+                }
+
+                const response = await fetch(TWITCH_FOLLOWED_URL + "?" + params.toString(), {
+                    headers: { Authorization: "Bearer " + token, "Client-Id": clientId }
+                });
+
+                if (!response.ok) {
+                    this.status("Twitch refused the follow list (HTTP " + response.status + ")"
+                        + (response.status === 403 ? " - the token needs the scope user:read:follows" : ""), true);
+                    return;
+                }
+
+                const body = await response.json();
+                (body.data || []).forEach((entry) => {
+                    const login = (entry.broadcaster_login || "").toLowerCase();
+                    if (login && existing.indexOf(login) === -1 && added < limit) {
+                        existing.push(login);
+                        added++;
+                    }
+                });
+
+                cursor = (body.pagination && body.pagination.cursor) || null;
+                pages++;
+            } while (cursor && added < limit && pages < 20);
+
+            this.channels.value = existing.join("\n");
+            this.status(added ? "Added " + added + " followed channel(s) to the box - press Save to keep them."
+                : "Nothing to add: every channel you follow is already in the list.");
+        } catch (error) {
+            this.status("Could not read your follow list: " + error.message, true);
+        }
+    }
+
+    /**
+     * Calls Twitch's own token validation endpoint from the browser.
+     *
+     * It is used rather than a round trip through the plugin because there is nothing to add for it:
+     * Twitch answers cross-origin requests on both id.twitch.tv and api.twitch.tv, so the page can ask
+     * directly and report exactly what Twitch said about the token that was just typed in.
+     */
+    async validateToken(token) {
+        const clientId = (this.clientId.value || "").trim() || FALLBACK.ClientId;
+        const response = await fetch(TWITCH_VALIDATE_URL, {
+            headers: { Authorization: "OAuth " + token, "Client-Id": clientId }
+        });
+
+        if (!response.ok) {
+            throw new Error("HTTP " + response.status + " - issue a fresh one at twitchtokengenerator.com or dev.twitch.tv");
+        }
+
+        return response.json();
+    }
+
+    /** Shows a line inside the page. The only status mechanism this page depends on. */
+    status(text, isError) {
+        if (!this.tokenStatus) {
+            return;
+        }
+
+        this.tokenStatus.style.display = "block";
+        this.tokenStatus.textContent = text;
+        this.tokenStatus.style.color = isError ? "#e05959" : "";
     }
 }

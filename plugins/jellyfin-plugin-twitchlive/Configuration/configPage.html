@@ -22,6 +22,85 @@
                         not exist stays in the offline group, and the guide says so.</div>
                 </div>
 
+                <h2 class="sectionTitle">Account (optional)</h2>
+                <p>
+                    Everything above works without a Twitch account. An OAuth token adds three things:
+                    the ad-free rendition your channel subscription or Twitch Turbo entitles you to, the
+                    broadcaster's own schedule through the documented API rather than the public feed, and
+                    the channels this account follows. Get one at
+                    <a href="https://twitchtokengenerator.com" target="_blank" rel="noopener">twitchtokengenerator.com</a>
+                    (tick <code>user:read:follows</code> if you want the follow list) or from your own app at
+                    <a href="https://dev.twitch.tv/console" target="_blank" rel="noopener">dev.twitch.tv/console</a>.
+                </p>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="txtAuthToken">OAuth access token</label>
+                    <input id="txtAuthToken" type="text" is="emby-input" autocomplete="off" spellcheck="false"
+                           placeholder="(none - everything works anonymously)" />
+                    <div class="fieldDescription">
+                        Stored in this plugin's XML file under the data directory and sent only to
+                        api.twitch.tv, id.twitch.tv, gql.twitch.tv and usher.ttvnw.net. Revoke it at
+                        <a href="https://www.twitch.tv/settings/connections" target="_blank" rel="noopener">twitch.tv/settings/connections</a>.
+                        <button type="button" is="emby-button" id="btnCheckToken" class="button-minor emby-button"
+                                style="margin-left:.5em;">Check token</button>
+                    </div>
+                    <div id="tokenStatus" class="fieldDescription" style="display:none;"></div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="checkboxLabel" for="chkUseTokenForPlayback">
+                        <input type="checkbox" id="chkUseTokenForPlayback" /> Play with this account, so subscriptions and Turbo remove the ads
+                    </label>
+                </div>
+                <div class="fieldDescription" style="margin-top: 0;">
+                    Twitch decides whether to mark ad breaks when it hands out the playlist, and it can only
+                    do that if it sees the paying account on the request. Off means playback stays anonymous
+                    and ad-supported. No effect while the token field is empty.
+                </div>
+
+                <div class="inputContainer">
+                    <label class="checkboxLabel" for="chkImportFollows">
+                        <input type="checkbox" id="chkImportFollows" /> Also offer the channels this account follows
+                    </label>
+                </div>
+                <div class="fieldDescription" style="margin-top: 0;">
+                    Followed logins are added below the ones typed above and re-read every so often, so
+                    following someone new shows up as a channel on its own. Needs the scope
+                    <code>user:read:follows</code>.
+                    <button type="button" is="emby-button" id="btnLoadFollows" class="button-minor emby-button"
+                            style="margin-left:.5em;">Add my follows now</button>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="numFollowLimit">At most how many followed channels</label>
+                    <input id="numFollowLimit" type="number" is="emby-input" min="1" max="2000" step="1" />
+                    <div class="fieldDescription">Newest follow first. Every channel costs guide work, so a few hundred is already a lot.</div>
+                </div>
+
+                <h2 class="sectionTitle">Guide</h2>
+
+                <div class="inputContainer">
+                    <label class="checkboxLabel" for="chkUseSchedule">
+                        <input type="checkbox" id="chkUseSchedule" /> Use each channel's published schedule (its "Schedule" tab)
+                    </label>
+                </div>
+                <div class="fieldDescription" style="margin-top: 0;">
+                    Turns the guide into actual appointments for channels that publish one. The public feed is
+                    used, so this needs no login; a channel without a schedule keeps its generated entry.
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="numScheduleDays">How many days of schedule to fetch</label>
+                    <input id="numScheduleDays" type="number" is="emby-input" min="1" max="28" step="1" />
+                    <div class="fieldDescription">Twitch publishes about a week either way, so more than 7 mostly costs requests.</div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="numGuideAhead">Show a running stream in the guide for (minutes)</label>
+                    <input id="numGuideAhead" type="number" is="emby-input" min="15" max="1440" step="15" />
+                    <div class="fieldDescription">How far a live stream with no published end is extended. Where the channel's own schedule says what comes next, that ends the entry earlier.</div>
+                </div>
+
                 <div class="inputContainer">
                     <label class="checkboxLabel" for="chkIncludeOffline">
                         <input type="checkbox" id="chkIncludeOffline" /> List channels that are not streaming
@@ -31,6 +110,18 @@
                     On: every channel keeps its place and the guide says "offline". Off: only live channels
                     appear at all, so the list grows and shrinks with each refresh.
                 </div>
+
+                <div class="inputContainer">
+                    <label class="checkboxLabel" for="chkShowLogos">
+                        <input type="checkbox" id="chkShowLogos" /> Use each account's profile picture as its channel logo
+                    </label>
+                </div>
+                <div class="fieldDescription" style="margin-top: 0;">
+                    The picture arrives with the live/offline answer that is fetched anyway, so this costs no
+                    extra requests. Stream thumbnails and category art are attached to the guide entries.
+                </div>
+
+                <h2 class="sectionTitle">Playback</h2>
 
                 <div class="inputContainer">
                     <label class="checkboxLabel" for="chkAllowSource">
@@ -55,15 +146,9 @@
                 </div>
 
                 <div class="inputContainer">
-                    <label class="inputLabel inputLabelUnfocused" for="numGuideAhead">Show a running stream in the guide for (minutes)</label>
-                    <input id="numGuideAhead" type="number" is="emby-input" min="15" max="1440" step="15" />
-                    <div class="fieldDescription">Twitch publishes no schedule, so this far ahead of now is a guess.</div>
-                </div>
-
-                <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="txtClientId">Twitch client id</label>
                     <input id="txtClientId" type="text" is="emby-input" autocomplete="off" />
-                    <div class="fieldDescription">The public id of the twitch.tv player. Replace it with your own from dev.twitch.tv only if you want to.</div>
+                    <div class="fieldDescription">The public id of the twitch.tv player. Replace it with your own from dev.twitch.tv only if you want to - a token must have been issued for the client id it is sent with.</div>
                 </div>
 
                 <div class="inputContainer">
