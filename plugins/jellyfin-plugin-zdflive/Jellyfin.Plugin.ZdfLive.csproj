@@ -25,4 +25,13 @@
     </PackageReference>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The configuration page, the ES module it names in data-controller, and the channel list that
+         module renders. All three are served through /web/ConfigurationPage?name=&lt;page name&gt;, so all
+         three have to be registered as pages in Plugin.GetPages() and embedded here. -->
+    <EmbeddedResource Include="Configuration\configPage.html" />
+    <EmbeddedResource Include="Configuration\configController.js" />
+    <EmbeddedResource Include="Configuration\zdfCatalog.json" />
+  </ItemGroup>
+
 </Project>

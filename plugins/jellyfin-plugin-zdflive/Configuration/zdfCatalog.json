@@ -1,0 +1,141 @@
+{
+  "note": "Generated from ZdfChannelCatalog.cs - the plugin logs a warning at startup when the two disagree.",
+  "channels": [
+    {
+      "key": "zdf",
+      "name": "ZDF",
+      "epgId": "ZDF.de",
+      "group": "ZDF Live",
+      "logoId": "ZDF.de",
+      "default": true
+    },
+    {
+      "key": "zdf_neo",
+      "name": "ZDFneo",
+      "epgId": "ZDFneo.de",
+      "group": "ZDF Live",
+      "logoId": "ZDFneo.de",
+      "default": true
+    },
+    {
+      "key": "zdf_info",
+      "name": "ZDFinfo",
+      "epgId": "ZDFinfo.de",
+      "group": "ZDF Live",
+      "logoId": "ZDFinfo.de",
+      "default": true
+    },
+    {
+      "key": "dreisat",
+      "name": "3sat",
+      "epgId": "3sat.de",
+      "group": "ZDF Live",
+      "logoId": "3sat.de",
+      "default": true
+    },
+    {
+      "key": "phoenix",
+      "name": "phoenix",
+      "epgId": "PHOENIX.de",
+      "group": "ZDF Live",
+      "logoId": "Phoenix.de",
+      "default": true
+    },
+    {
+      "key": "arte",
+      "name": "ARTE",
+      "epgId": "ARTE.de",
+      "group": "ZDF Live",
+      "logoId": "ARTE.de",
+      "default": true
+    },
+    {
+      "key": "kika",
+      "name": "KiKA",
+      "epgId": "KIKA.de",
+      "group": "ZDF Live",
+      "logoId": "KIKA.de",
+      "default": true
+    },
+    {
+      "key": "das_erste",
+      "name": "Das Erste",
+      "epgId": "Das.Erste.de",
+      "group": "ARD Live",
+      "logoId": "ARD.de",
+      "default": true
+    },
+    {
+      "key": "tagesschau24",
+      "name": "tagesschau24",
+      "epgId": "tagesschau24.de",
+      "group": "ARD Live",
+      "logoId": "Tagesschau24.de",
+      "default": true
+    },
+    {
+      "key": "ard_alpha",
+      "name": "ARD-alpha",
+      "epgId": "ARD.alpha.de",
+      "group": "ARD Live",
+      "logoId": "ARDalpha.de",
+      "default": true
+    },
+    {
+      "key": "wdr",
+      "name": "WDR",
+      "epgId": "WDR.de",
+      "group": "ARD Live",
+      "logoId": "WDR.de",
+      "default": true
+    },
+    {
+      "key": "mdr_sachsen",
+      "name": "MDR Sachsen",
+      "epgId": "MDR.de",
+      "group": "ARD Live",
+      "logoId": "MDR.de",
+      "default": true
+    },
+    {
+      "key": "br_nord",
+      "name": "BR Nord",
+      "epgId": "BR.de",
+      "group": "ARD Live",
+      "logoId": "BR.de",
+      "default": true
+    },
+    {
+      "key": "hr",
+      "name": "HR",
+      "epgId": "HR.de",
+      "group": "ARD Live",
+      "logoId": "HR.de",
+      "default": true
+    },
+    {
+      "key": "rbb_berlin",
+      "name": "rbb Berlin",
+      "epgId": "RBB.de",
+      "group": "ARD Live",
+      "logoId": "RBB.de",
+      "default": true
+    },
+    {
+      "key": "ndr_nds",
+      "name": "NDR Niedersachsen",
+      "epgId": "NDR.de",
+      "group": "ARD Live",
+      "logoId": "NDR.de",
+      "default": true
+    },
+    {
+      "key": "swr_bw",
+      "name": "SWR Baden-Württemberg",
+      "epgId": "SWR/SR.de",
+      "group": "ARD Live",
+      "logoId": "SWRSR.de",
+      "default": true
+    }
+  ]
+}

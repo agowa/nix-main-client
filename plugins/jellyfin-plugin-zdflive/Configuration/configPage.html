@@ -1,0 +1,99 @@
+<div id="ZdfLiveConfigurationPage" data-role="page" class="page type-interior pluginConfigurationPage"
+     data-controller="zdfLiveConfigController" data-title="ZDF Live TV">
+    <div data-role="content">
+        <div class="content-primary">
+            <form id="zdfLiveForm" class="zdfLiveForm">
+                <div class="verticalSection verticalSection-extrabottompadding">
+                    <h2 class="sectionTitle">ZDF Live TV</h2>
+                    <p>
+                        Tick the channels to offer. The list is what this plugin's catalogue knows plus
+                        whatever the broadcasters' stream API is serving right now, so a channel they add
+                        appears here without rebuilding anything - one that only the API knows about just
+                        has no programme-guide id attached yet, and Jellyfin matches those by name instead.
+                        Saving applies immediately; run <em>Refresh Guide</em> to renumber at once.
+                    </p>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel" for="txtFilter">Filter</label>
+                    <input id="txtFilter" type="text" is="emby-input" autocomplete="off"
+                           placeholder="type to narrow the list down" />
+                    <div class="fieldDescription">Matches the name or the key.</div>
+                </div>
+
+                <div class="checkboxList" id="channelList" style="margin-bottom:1em;">
+                    <div class="fieldDescription">Loading channels...</div>
+                </div>
+
+                <div class="buttonSubmitWrapper fieldDescription" style="margin-bottom:1.5em;">
+                    <button type="button" is="emby-button" id="btnSelectDefaults" class="button-minor emby-button">Only the defaults</button>
+                    <button type="button" is="emby-button" id="btnSelectZdf" class="button-minor emby-button">ZDF offering</button>
+                    <button type="button" is="emby-button" id="btnSelectAll" class="button-minor emby-button">Select all</button>
+                    <button type="button" is="emby-button" id="btnSelectNone" class="button-minor emby-button">None</button>
+                </div>
+
+                <h2 class="sectionTitle">Artwork</h2>
+
+                <div class="inputContainer">
+                    <label class="checkboxLabel" for="chkShowLogos">
+                        <input type="checkbox" id="chkShowLogos" /> Give each channel its logo
+                    </label>
+                </div>
+                <div class="fieldDescription" style="margin-top: 0;">
+                    The German XMLTV guide carries no icons, so these come from a logo host instead.
+                    Jellyfin downloads one the first time something wants to show it.
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="txtLogoTemplate">Logo URL template</label>
+                    <input id="txtLogoTemplate" type="text" is="emby-input" autocomplete="off" spellcheck="false" />
+                    <div class="fieldDescription">
+                        <code>{id}</code> is replaced with the channel's logo id. Empty switches logos off
+                        without touching the tickbox above - point it at your own image host if you prefer.
+                    </div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="txtLogoOverrides">Per-channel logo URLs (optional)</label>
+                    <textarea id="txtLogoOverrides" is="emby-textarea" rows="4" spellcheck="false"
+                              style="width:100%;font-family:monospace;"
+                              placeholder="dreisat=https://example.org/3sat.png&#10;ndr_nds=https://example.org/ndr.png"></textarea>
+                    <div class="fieldDescription">One <code>key=url</code> per line, winning over the template.
+                        A few channels have no logo at the default host.</div>
+                </div>
+
+                <h2 class="sectionTitle">Streams</h2>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="numCacheMinutes">Re-resolve stream URLs after (minutes)</label>
+                    <input id="numCacheMinutes" type="number" is="emby-input" min="1" max="1440" step="1" />
+                    <div class="fieldDescription">The broadcasters move these paths now and then; resolving costs one request for the whole list.</div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="txtApiBaseUrl">Stream API</label>
+                    <input id="txtApiBaseUrl" type="text" is="emby-input" autocomplete="off" spellcheck="false" />
+                    <div class="fieldDescription">Used to look up current playlist addresses. If it stops answering, the plugin falls back to the URLs baked into its catalogue and logs one warning.</div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="inputLabel inputLabelUnfocused" for="txtUserAgent">User-Agent for the CDNs</label>
+                    <input id="txtUserAgent" type="text" is="emby-input" autocomplete="off" spellcheck="false" />
+                    <div class="fieldDescription">The ARD and ZDF CDNs are behind Akamai and answer some regions a 403 for anything that does not look like a browser, so this should stay a real browser string.</div>
+                </div>
+
+                <div class="inputContainer">
+                    <label class="checkboxLabel" for="chkReferer">
+                        <input type="checkbox" id="chkReferer" /> Send a Referer header for the ZDF-operated CDNs
+                    </label>
+                </div>
+
+                <div class="buttonSubmitWrapper fieldDescription">
+                    <button type="submit" is="emby-button" class="raised button-submit block emby-button">
+                        <span>Save</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
