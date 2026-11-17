@@ -41,7 +41,10 @@
                         Stored in this plugin's XML file under the data directory and sent only to
                         api.twitch.tv, id.twitch.tv, gql.twitch.tv and usher.ttvnw.net. Revoke it at
                         <a href="https://www.twitch.tv/settings/connections" target="_blank" rel="noopener">twitch.tv/settings/connections</a>.
-                        <button type="button" is="emby-button" id="btnCheckToken" class="button-minor emby-button"
+                        <!-- raised: the class the themes actually style. "button-minor" does not exist in
+                             jellyfin-web, and these sit inside a fieldDescription paragraph, whose colour
+                             they would otherwise inherit - grey text on a browser-default button. -->
+                        <button type="button" is="emby-button" id="btnCheckToken" class="raised emby-button"
                                 style="margin-left:.5em;">Check token</button>
                     </div>
                     <div id="tokenStatus" class="fieldDescription" style="display:none;"></div>
@@ -67,7 +70,7 @@
                     Followed logins are added below the ones typed above and re-read every so often, so
                     following someone new shows up as a channel on its own. Needs the scope
                     <code>user:read:follows</code>.
-                    <button type="button" is="emby-button" id="btnLoadFollows" class="button-minor emby-button"
+                    <button type="button" is="emby-button" id="btnLoadFollows" class="raised emby-button"
                             style="margin-left:.5em;">Add my follows now</button>
                 </div>
 
@@ -157,7 +160,7 @@
                     <div class="fieldDescription">Empty sends no header, which is what the CDNs expect today.</div>
                 </div>
 
-                <div class="buttonSubmitWrapper fieldDescription">
+                <div>
                     <button type="submit" is="emby-button" class="raised button-submit block emby-button">
                         <span>Save</span>
                     </button>
