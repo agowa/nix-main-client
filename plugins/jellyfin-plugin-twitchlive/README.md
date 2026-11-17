@@ -35,9 +35,12 @@ switches renditions; the plugin never chooses a quality.
 neither a restart nor a rebuild:
 
 * **Web UI** - Dashboard → Plugins → *Twitch Live TV* → Settings. One login per line (commas are accepted
-  too), plus the cache sizes and the offline-channel switch.
-* **REST API** - `GET`/`PUT /Plugins/acfb8b6e-f2ce-4615-800f-77c40ffd213d/Configuration`. Send the whole
-  object back (the server replaces it, so a partial body would blank the fields you left out).
+  too), plus logos, the schedule switch and horizon, cache sizes, the offline-channel switch, and the optional
+  account token with its *Check token* and *Add my follows* buttons.
+* **REST API** - `GET /Plugins/acfb8b6e-f2ce-4615-800f-77c40ffd213d/Configuration` to read it, **POST** the same
+  URL to write it (Jellyfin implements only `[HttpPost("{pluginId}/Configuration")]`; a PUT is answered 405).
+  Send the whole object back - the server replaces it, so a partial body blanks the fields you left out - and
+  note that answers use PascalCase property names.
 * **Nix** - `services.jellyfinTwitch.channels`, which *seeds* the file on a fresh installation and leaves
   it alone afterwards; set `manageConfig = true` only if this configuration should win every switch.
 

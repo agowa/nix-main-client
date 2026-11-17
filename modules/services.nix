@@ -125,7 +125,7 @@ in {
   services.jellyfinZdfLive.enable = true;
 
   # Live TV for Twitch streamers - installs plugins/jellyfin-plugin-twitchlive. The channel list is not
-  # set here: it is edited while the server runs (plugin settings page, or PUT /Plugins/<id>/Configuration)
+  # set here: it is edited while the server runs (plugin settings page, or POST /Plugins/<id>/Configuration)
   # and this module only seeds it on a fresh installation; see modules/jellyfin-twitch.nix.
   services.jellyfinTwitch.enable = true;
 

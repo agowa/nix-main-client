@@ -84,7 +84,8 @@ in
         This is only a starting point unless {option}`manageConfig` is on: the plugin reads its channel
         list from its own configuration at runtime, so streamers are normally added and removed in the
         web UI (Dashboard -> Plugins -> Twitch Live TV -> Settings) or with
-        `PUT /Plugins/acfb8b6e-f2ce-4615-800f-77c40ffd213d/Configuration`, and neither a rebuild nor a
+        `POST /Plugins/acfb8b6e-f2ce-4615-800f-77c40ffd213d/Configuration` (POST - Jellyfin answers a PUT
+        with 405), and neither a rebuild nor a
         restart is involved. With {option}`manageConfig` on, this list wins and a switch rewrites the
         file - including anything changed in the UI since.
       '';
