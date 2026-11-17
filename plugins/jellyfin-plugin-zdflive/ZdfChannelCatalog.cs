@@ -21,7 +21,11 @@ namespace Jellyfin.Plugin.ZdfLive;
 /// on its own catalogue and spells a few of them differently ("ARD.de" for Das Erste, "SWRSR.de" for the
 /// SWR/SR common programme). Ignored when <see cref="LogoUrl"/> is set.
 /// </param>
-/// <param name="LogoUrl">An explicit logo URL, which wins over the template plus id.</param>
+/// <param name="LogoUrl">
+/// A complete logo URL for a channel the template's host does not carry (3sat and NDR have no image at
+/// epg.best). Beats the template plus id, but still yields to an explicit URL from the settings and to
+/// switching logos off there.
+/// </param>
 public sealed record ZdfChannelDefinition(
     string Key,
     string Name,
@@ -97,8 +101,9 @@ public static class ZdfChannelCatalog
     /// <remarks>
     /// The German XMLTV guide this plugin's channels are matched against carries no icons at all, so
     /// artwork has to come from somewhere else; epg.best publishes a logo per guide id and is what the
-    /// default template points at. Both the template and a per-channel URL can be changed in the
-    /// settings page, because a host that disappears should not cost more than one setting.
+    /// default template points at. It does not carry every channel, so an entry may name its own source
+    /// (<see cref="ZdfChannelDefinition.LogoUrl"/>). Both the template and a per-channel URL can be
+    /// changed in the settings page, because a host that disappears should not cost more than one setting.
     /// </remarks>
     /// <param name="definition">The channel.</param>
     /// <param name="template">A URL containing <c>{id}</c>, or empty for the built-in default.</param>
@@ -113,8 +118,17 @@ public static class ZdfChannelCatalog
 
         if (string.IsNullOrWhiteSpace(template))
         {
-            // An empty template means "no logos"; the settings page offers it as such.
+            // An empty template means "no logos"; the settings page offers it as such. It wins over a
+            // URL baked into the catalogue below, so one setting really is enough to switch artwork off.
             return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(definition.LogoUrl))
+        {
+            // The host the template points at does not carry every channel; those entries name their own
+            // source instead of being handed a URL that would 404 (see VerifyLogosAsync for why that is
+            // worth avoiding: Jellyfin keeps a channel's first image and never replaces it).
+            return definition.LogoUrl.Trim();
         }
 
         if (!template.Contains("{id}", StringComparison.Ordinal))
