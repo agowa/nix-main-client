@@ -2,10 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.ZdfLive.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.LiveTv;
 using MediaBrowser.Model.Dto;
@@ -23,13 +25,18 @@ namespace Jellyfin.Plugin.ZdfLive.TunerHosts;
 /// </summary>
 public sealed class ZdfTunerHost : ITunerHost, IConfigurableTunerHost
 {
+    /// <summary>Prefix of every channel id this plugin hands out.</summary>
+    private const string ChannelIdPrefix = ZdfChannelCatalog.HostId + "_";
+
     private readonly ZdfChannelRepository _repository;
+    private readonly LiveTvDevices _devices;
     private readonly ILogger<ZdfTunerHost> _logger;
 
     /// <summary>Initializes a new instance of the <see cref="ZdfTunerHost"/> class.</summary>
-    public ZdfTunerHost(ZdfChannelRepository repository, ILogger<ZdfTunerHost> logger)
+    public ZdfTunerHost(ZdfChannelRepository repository, LiveTvDevices devices, ILogger<ZdfTunerHost> logger)
     {
         _repository = repository;
+        _devices = devices;
         _logger = logger;
     }
 
@@ -46,6 +53,15 @@ public sealed class ZdfTunerHost : ITunerHost, IConfigurableTunerHost
     /// <inheritdoc />
     public async Task<List<ChannelInfo>> GetChannels(bool enableCache, CancellationToken cancellationToken)
     {
+        // The Live TV service asks every registered tuner host for its channels whether or not the
+        // operator added a device of this type (see LiveTvDevices), so answering with nothing until one
+        // exists is what keeps these channels out of a library that only set up another plugin.
+        var device = _devices.GetPrimaryDevice();
+        if (device is null)
+        {
+            return [];
+        }
+
         var resolved = await _repository.GetChannelsAsync(!enableCache, cancellationToken).ConfigureAwait(false);
 
         var channels = new List<ChannelInfo>(resolved.Count);
@@ -57,8 +73,10 @@ public sealed class ZdfTunerHost : ITunerHost, IConfigurableTunerHost
 
             channels.Add(new ChannelInfo
             {
-                // The bare catalogue key. Everything else the server later asks for is looked up by this id.
-                Id = definition.Key,
+                // Prefixed with the plugin's own type: every installed tuner's channels end up in one
+                // list keyed by this id alone, so an unqualified "zdf" would collide with any other
+                // plugin or M3U device that happens to use the same name for a channel.
+                Id = ChannelIdPrefix + definition.Key,
                 Name = definition.Name,
 
                 // Cosmetic: positions in the guide. Programme data is matched by TunerChannelId below,
@@ -70,13 +88,15 @@ public sealed class ZdfTunerHost : ITunerHost, IConfigurableTunerHost
                 // The id this channel has in the German XMLTV guide. Jellyfin tries ChannelInfo.Id first
                 // and TunerChannelId second when it looks for programme data, so setting it here is what
                 // attaches the EPG without any manual channel mapping.
-                TunerChannelId = definition.EpgId,
+                TunerChannelId = string.IsNullOrWhiteSpace(definition.EpgId) ? null : definition.EpgId,
 
                 CallSign = definition.Name,
 
-                // A listings provider that is not enabled "for all tuners" filters on this and throws if
-                // it is empty, so it always has to be set.
-                TunerHostId = ZdfChannelCatalog.HostId,
+                // The tuner device's id as stored in livetv.xml, not this plugin's type string: a guide
+                // provider enabled for specific tuners rather than "all" is matched against exactly this
+                // value (ListingsManager.IsListingProviderEnabledForTuner), so anything else here means
+                // the EPG is silently skipped for every channel.
+                TunerHostId = device.Id,
 
                 ChannelType = ChannelType.TV,
                 ChannelGroup = definition.Group,
@@ -84,7 +104,10 @@ public sealed class ZdfTunerHost : ITunerHost, IConfigurableTunerHost
             });
         }
 
-        _logger.LogDebug("ZDF Live TV: offering {Count} channels", channels.Count);
+        _logger.LogDebug(
+            "ZDF Live TV: offering {Count} channels on tuner device '{Device}'",
+            channels.Count,
+            device.Id);
         return channels;
     }
 

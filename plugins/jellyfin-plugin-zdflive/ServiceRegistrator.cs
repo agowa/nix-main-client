@@ -20,6 +20,7 @@ public sealed class ServiceRegistrator : IPluginServiceRegistrator
     /// <inheritdoc />
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
+        serviceCollection.AddSingleton<LiveTvDevices>();
         serviceCollection.AddSingleton<ZdfChannelRepository>();
         serviceCollection.AddSingleton<ITunerHost, ZdfTunerHost>();
     }
