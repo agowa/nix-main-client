@@ -83,8 +83,44 @@ channel at once, only in that case.
 `TwitchGuideProvider` implements `IListingsProvider`: a running stream becomes one programme carrying its
 title and category, starting when this plugin first saw that title (Twitch's public player API reports no
 start time, so "live since" can only come from watching) and reaching `GuideAheadMinutes` ahead. Programme
-ids change with the title, which is how Jellyfin learns a stream moved on. There is no schedule to show -
-everything past *now* is a guess, which is why the horizon is short and configurable.
+ids change with the title, which is how Jellyfin learns a stream moved on. Everything this plugin generates
+is a guess about the future, so its horizon stays short and configurable.
+
+Where a broadcaster publishes one, their own **Schedule** tab is used as well: `/helix/schedule/icalendar`
+returns the slots as concrete dates for about a week ahead, and it needs no Client-Id and no login (verified
+against the live endpoint with no credentials). A published slot ends a live entry early instead of letting a
+24/7 channel sit on top of an announced one-off, and it stops an *Offline* entry before the hour something is
+announced for - otherwise the guide shows both claiming the same time. Channels that publish nothing behave
+exactly as they did without this. `TwitchICalendar` reads the feed by hand rather than pulling in a dependency:
+the feed is a narrow slice of RFC 5545, but it does use folded lines and a `TZID=/Europe/Berlin` parameter (with
+a leading slash .NET will not accept), and times arrive in the broadcaster's zone with no `Z`.
+
+The feed also returns stale slots - one channel's answer contained events from months ago - so everything is
+filtered to the requested window before it reaches the guide.
+
+## Signing in is optional, and what a token buys
+
+Everything above works anonymously. Putting an OAuth access token of your own account into the settings page
+adds exactly two things:
+
+* **The ad-free rendition** that a channel subscription or Twitch Turbo entitles that account to. With
+  `UseTokenForPlayback` on, the token goes to usher with the playlist request so Twitch can see who is watching;
+  without it the same stream arrives with ads and nothing else about playback changes. Which channels are
+  ad-free for you depends on where you hold a subscription, so this has to be confirmed by whoever owns the
+  account - it cannot be verified anonymously.
+* **Importing follows.** `ImportFollowedChannels` reads `/helix/channels/followed`, which needs the scope
+  `user:read:follows`. Follows are appended after the hand-picked logins rather than replacing them, so channel
+  numbers do not move when someone unfollows, and imported channels carry a `followed` tag.
+
+The **Check token** button asks `id.twitch.tv/oauth2/validate` from the browser (that endpoint answers
+cross-origin), so you see whose token it is and which scopes it has before saving anything; **Add my follows**
+fills the channel box from your own list without storing the token anywhere new. A token with a missing scope
+says which one instead of failing later as an HTTP 403, and a failed read keeps the previous follow list rather
+than emptying the channel list.
+
+Treat the setting like a password: it is stored in this plugin's XML file under the data directory (world-readable
+to anything that can read Jellyfin's config) and is sent only to `api.twitch.tv`, `id.twitch.tv`, `gql.twitch.tv`
+and `usher.ttvnw.net`. Revoke it at <https://www.twitch.tv/settings/connections>.
 
 ## Two one-time steps in the web UI
 
@@ -113,9 +149,13 @@ file from Nix would delete any other tuner or EPG. Both steps survive a rebuild,
   the server probes it (`hls`, h264 `1920x1080` + AAC stereo) and starts jellyfin-ffmpeg against the usher
   URL; a 45 second pull delivered `24 MB` of MPEG-TS (first byte `0x47`). An offline channel instead logs
   that there is nothing to tune to and offers no media source.
-* Runtime editing works on a running server: `PUT /Plugins/<id>/Configuration` with a different channel
-  list, then the *Refresh Guide* task, replaced the channels in the library - two removed, two added, no
-  restart and no rebuild - and `IncludeOfflineChannels = false` left only the live ones.
+* Runtime editing works on a running server: `POST /Plugins/<id>/Configuration` with a different channel list,
+  then the *Refresh Guide* task, replaced the channels in the library - two removed, two added, no restart and no
+  rebuild - and `IncludeOfflineChannels = false` left only the live ones. **POST, not PUT**: Jellyfin's
+  `PluginsController` only implements `[HttpPost("{pluginId}/Configuration")]`, so a PUT is answered 405. Passing
+  that failure to `Dashboard.processErrorResponse()` is what showed a dialog whose whole message was the word
+  "undefined" - it builds its title with `""+e.status`, and an `Error` has no `status`. The settings page now
+  reports failures inside the page instead.
 * The CDNs want **no special headers**: usher answered `200` with no headers at all, with only a User-Agent,
   and with only Origin/Referer alike - the token already carries the client IP. So unlike ZDF nothing here
   pretends to be Chrome; `UserAgent` is empty unless someone needs it.
@@ -130,6 +170,14 @@ curl -s https://gql.twitch.tv/gql -H 'Client-Id: kimne78kx3ncx6brgo4mv6wki5h1ko'
      -d '[{"operationName":"q0","query":"query q0($a: String!, $b: String!){ c_lofigirl: user(login: $a){displayName stream{type title}} c_esl_sc2: user(login: $b){displayName stream{type title}} }","variables":{"a":"lofigirl","b":"esl_sc2"}}]'
 ```
 
+* Schedule, artwork and per-plugin tuner scoping, on a running server (2026-11-16): `/helix/schedule/icalendar`
+  answers with no Client-Id and no Authorization (six `VEVENT`s for one channel); those slots reach the guide as
+  `Scheduled stream` entries at the right hour - `DTSTART;TZID=/America/Los_Angeles:...T110000` became 19:00Z -
+  while a second channel whose feed held only past events correctly contributed none. Every configured channel
+  got its profile picture as primary image (`/Items/{id}/Images/Primary` returns real PNGs), and with only the
+  Twitch tuner device present the ZDF plugin's channels disappeared from the library even though it stayed
+  installed, enabled and configured - re-adding the device brought all of them back.
+
 ## Limits worth knowing
 
 * **This is the player API, not an official one.** It uses the same endpoint and client id as the embedded
@@ -142,5 +190,10 @@ curl -s https://gql.twitch.tv/gql -H 'Client-Id: kimne78kx3ncx6brgo4mv6wki5h1ko'
 * **No VODs, no clips.** Live only; past broadcasts are a different API and a different feature.
 * **Recording is as good as the guess above.** Jellyfin records what the guide says will air, so a recording
   of a Twitch channel stops when `GuideAheadMinutes` runs out unless a refresh extends it.
-* Channel logos are not set: `ChannelInfo.ImageUrl` would point at Twitch's avatar CDN and let the server
-  fetch them, which is deliberately left for another day rather than added untested.
+* **A channel gets one picture, not a banner.** `ChannelInfo` has exactly three image members - `ImagePath`,
+  `ImageUrl`, `HasImage` - so there is no banner field in the tuner contract at all; `ImageUrl` becomes the
+  channel's primary image (Twitch's profile picture). Anything wider belongs to the programme: `ProgramInfo`
+  carries `ImageUrl`, `ThumbImageUrl`, `BackdropImageUrl` and `LogoImageUrl`, which is where the live thumbnail
+  and the category box art go.
+* **A logo URL cannot be taken back once stored.** Jellyfin writes a channel's image into its database item only
+  while it has none, so an address that later stops resolving stays on that channel until someone clears it.
