@@ -298,14 +298,14 @@ public sealed class ZdfChannelRepository
     /// The keys to offer, in the order they were configured.
     /// </summary>
     /// <remarks>
-    /// A missing or empty list means "the defaults" rather than "nothing", which is also what the
-    /// settings page assumes when it pre-ticks them: removing the tuner device is how nothing is
-    /// offered, and a settings page whose configuration failed to load should not be able to blank
-    /// every channel just by being saved.
+    /// Only a list that is not there at all means "the defaults": that is what the constructor puts in
+    /// place, and what a configuration file written before this option existed deserializes to. An empty
+    /// one is somebody's deliberate choice - the settings page says so before saving it - and offering
+    /// the whole default set back at them would make "deselect everything" mean its opposite.
     /// </remarks>
     private static List<string> RequestedKeys(string[]? enabledKeys)
     {
-        if (enabledKeys is null || enabledKeys.Length == 0)
+        if (enabledKeys is null)
         {
             return ZdfChannelCatalog.DefaultKeys.ToList();
         }
