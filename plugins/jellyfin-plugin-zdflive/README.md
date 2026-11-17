@@ -58,7 +58,17 @@ curl -so /dev/null -w '%{http_code}\n' https://zdf-hls-15.akamaized.net/hls/live
 ## Changing settings
 
 Defaults are complete (the seven channels above, 60 min URL cache), so no configuration is required.
-Everything is a NixOS option in `modules/jellyfin-zdf.nix`:
+
+The normal way to change them is the plugin's own **Settings page** (Dashboard → Plugins → ZDF Live TV →
+Settings): every channel the catalogue knows plus anything else the stream API is serving right now, listed with
+its guide id and group and ticked from what is configured, with a filter and select-all/none shortcuts. Saving
+takes effect on the next *Refresh Guide* - no restart, no rebuild. Channels that are configured but currently
+unresolvable stay in the list, or saving would quietly delete them; channels only the API knows about can be
+ticked too (they simply have no guide id, so programme data matches by name). Logos, the logo host and a
+per-channel logo URL are on the same page.
+
+Everything is also a NixOS option in `modules/jellyfin-zdf.nix`, for when this configuration really is the source
+of truth:
 
 ```nix
 services.jellyfinZdfLive = {
@@ -77,10 +87,29 @@ nix build .#nixosConfigurations.PC-001.config.services.jellyfinZdfLive.configFil
 
 Two behaviours worth knowing, both measured rather than assumed:
 
-* The file is rewritten on every switch, so settings changed inside Jellyfin do not survive a rebuild.
-  Set `manageConfig = false` to hand ownership back to the server.
+* `manageConfig` defaults to **false**: with it on, the module rewrites the plugin's XML on every switch and
+  anything set in the settings page since is gone - which would undo the point of having a settings page. Turn it
+  on only if Nix is the single source of truth for this plugin.
 * *Removing* a channel takes two guide refreshes to disappear from the list: the first refresh adds what
   is new and leaves the dropped channel as an unplayable leftover, the second one prunes it.
+
+## Channel artwork
+
+The German XMLTV guide these channels are matched against publishes no icons, so without help a channel has no
+picture anywhere. `ChannelInfo.ImageUrl` is set from a logo host instead - by default
+`https://static.epg.best/de/{id}.png`, with the id being the guide id except where that host spells it
+differently (`ARD.de` for Das Erste, `SWRSR.de` for the SWR/SR programme, `Phoenix.de`).
+
+Measured against that host with all 17 catalogue channels: fifteen answer `200`; **3sat and NDR are 404** under
+every spelling tried. Those two are offered without a logo rather than with a broken one - each URL is checked
+once before it is handed out, because Jellyfin stores a channel's image only while the item has none, so an
+address that turns out not to exist would stay on that channel permanently. Paste your own URL for them in the
+settings page if you want pictures there; `ShowChannelLogos` off or an empty template switches logos off entirely.
+
+One limit worth stating because it is often assumed otherwise: a tuner host can hand over exactly **one** image
+per channel (`ChannelInfo` has only `ImagePath`, `ImageUrl`, `HasImage`) - there is no banner field in the
+contract. Wider artwork belongs to programmes (`ProgramInfo.ImageUrl/ThumbImageUrl/BackdropImageUrl`), which for
+these channels comes from the XMLTV guide rather than from this plugin.
 
 ## Verified state (2026-11-11, against jellyfin 10.11.11 - the version this flake pins)
 
