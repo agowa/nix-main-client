@@ -124,7 +124,7 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
                 // known either.
                 IsHD = isLive ? true : null,
 
-                Tags = [isLive ? "live" : "offline"],
+                Tags = BuildTags(isLive, channel.FromFollows),
 
                 // The account's own picture, which arrived with the live/offline answer - so a logo
                 // costs no extra request. Jellyfin stores this as the channel's primary image and
@@ -280,6 +280,13 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
 
         var headers = new Dictionary<string, string>();
 
+        // With an account token on usher's request, Twitch sees who is watching and can leave the ad
+        // markers out of the playlist if that account has a subscription to this channel or Twitch
+        // Turbo. Without it the same stream arrives with ads; nothing else about playback changes.
+        if (config.UseTokenForPlayback && !string.IsNullOrWhiteSpace(config.AuthToken))
+        {
+            headers["Authorization"] = "OAuth " + config.AuthToken.Trim();
+        }
 
         // Twitch's CDNs answer a plain request - the playback token is already tied to this machine's IP
         // address - so no header is sent unless an operator asks for one.
@@ -322,6 +329,22 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
         mediaSource.InferTotalBitrate();
         return mediaSource;
     }
+
+    /// <summary>
+    /// Builds the tags for one channel.
+    /// </summary>
+    /// <remarks>
+    /// Jellyfin copies these onto the library item (<c>GuideManager</c> does
+    /// <c>item.Tags = channelInfo.Tags</c>) and never reads <c>ChannelGroup</c>, so a tag is the only
+    /// thing a viewer can actually filter on. "followed" marks channels that arrived through the
+    /// account's follow list rather than through the settings box, which makes an imported channel
+    /// recognisable without opening the settings again - and shows who renumbered the guide.
+    /// </remarks>
+    /// <param name="isLive">Whether the channel is streaming right now.</param>
+    /// <param name="fromFollows">Whether this login came from the follow list.</param>
+    /// <returns>The tags to offer.</returns>
+    private static string[] BuildTags(bool isLive, bool fromFollows)
+        => fromFollows ? [isLive ? "live" : "offline", "followed"] : [isLive ? "live" : "offline"];
 
     /// <summary>A stable, filesystem-safe id for a URL (MediaSourceInfo.Id is used as a cache key).</summary>
     private static string StableId(string url)

@@ -89,12 +89,22 @@ public sealed class TwitchChannelRepository
     {
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         var configured = ReadConfiguredLogins(config);
+        var followed = await GetFollowedLoginsAsync(config, cancellationToken).ConfigureAwait(false);
 
-        // Configuration order is guide order: it decides the channel numbers.
-        var logins = new List<string>(configured.Count);
+        // Hand-picked logins first and in their configured order: they decide the channel numbers.
+        // Follows are appended after them, newest follow first, so importing never renumbers anything.
+        var logins = new List<string>(configured.Count + followed.Count);
         foreach (var login in configured)
         {
             logins.Add(login);
+        }
+
+        foreach (var login in followed)
+        {
+            if (!logins.Contains(login, StringComparer.OrdinalIgnoreCase))
+            {
+                logins.Add(login);
+            }
         }
 
         await EnsureStatusesAsync(forceRefresh, config, logins, cancellationToken).ConfigureAwait(false);
@@ -105,13 +115,16 @@ public sealed class TwitchChannelRepository
         {
             if (_byLogin.TryGetValue(login, out var tracked))
             {
-                result.Add(tracked.ToChannel(false));
+                result.Add(tracked.ToChannel(followed.Contains(login, StringComparer.OrdinalIgnoreCase)));
             }
             else
             {
                 // Never answered about - either nothing was fetched yet, or this login is not worth
                 // asking Twitch about at all (see EnsureStatusesAsync). Either way it is not live.
-                result.Add(new TwitchChannel(login, login, new TwitchStreamStatus(login, login, false, false, null, null, null, null, null, null, null, null), null, null));
+                result.Add(new TwitchChannel(login, login, new TwitchStreamStatus(login, login, false, false, null, null, null, null), null, null)
+                {
+                    FromFollows = followed.Contains(login, StringComparer.OrdinalIgnoreCase)
+                });
             }
         }
 
@@ -355,6 +368,23 @@ public sealed class TwitchChannelRepository
     }
 
     /// <summary>
+    /// Gets the logins of the accounts the configured token follows, when that was asked for.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> GetFollowedLoginsAsync(PluginConfiguration config, CancellationToken cancellationToken)
+    {
+        if (!config.ImportFollowedChannels || string.IsNullOrWhiteSpace(config.AuthToken))
+        {
+            return Array.Empty<string>();
+        }
+
+        return await _helix.GetFollowedLoginsAsync(
+            config.AuthToken,
+            config.ClientId,
+            config.MaxFollowedChannels,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Gets the published broadcast slots of one channel, from its "Schedule" tab.
     /// </summary>
     /// <remarks>
@@ -404,7 +434,7 @@ public sealed class TwitchChannelRepository
     private sealed record TrackedChannel(TwitchStreamStatus Status, DateTime? LiveSinceUtc, DateTime? TitleSinceUtc)
     {
         public TwitchChannel ToChannel(bool fromFollows)
-            => new(Status.Login, Status.DisplayName, Status, LiveSinceUtc, TitleSinceUtc);
+            => new(Status.Login, Status.DisplayName, Status, LiveSinceUtc, TitleSinceUtc) { FromFollows = fromFollows };
     }
 
     /// <summary>A fetched schedule and the moment it is fetched again.</summary>
