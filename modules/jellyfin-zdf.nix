@@ -44,10 +44,13 @@ let
   # and with the defaults here that is /var/lib/jellyfin/plugins.
   pluginPath = "${config.services.jellyfin.dataDir}/plugins/${pluginFolder}";
 
+  configDir = "${config.services.jellyfin.dataDir}/plugins/configurations";
+  configFileTarget = "${configDir}/Jellyfin.Plugin.ZdfLive.xml";
+
   # The plugin's own settings, in exactly the format Jellyfin writes them itself
-  # (<dataDir>/plugins/configurations/<assembly name>.xml). Managing it here is what makes "also give
-  # me ZDFneo in SD" a system configuration change instead of a click in a web form; the trade-off is
-  # that a nixos-rebuild rewrites the file, so changes made through Jellyfin's REST API do not survive.
+  # (<dataDir>/plugins/configurations/<assembly name>.xml). It carries only what the options below
+  # cover: artwork settings are deliberately absent, because Jellyfin keeps the plugin's own default for
+  # any element a file does not mention, and those settings belong to the settings page.
   pluginConfig = pkgs.writeText "jellyfin-plugin-zdf-live.xml" ''
     <?xml version="1.0" encoding="utf-8"?>
     <PluginConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
@@ -119,10 +122,17 @@ in
 
     manageConfig = lib.mkOption {
       type = lib.types.bool;
-      default = true;
+      default = false;
       description = ''
-        Write the plugin's configuration file from this module. Turn off to keep settings that were
-        made inside Jellyfin instead of having them rewritten on every switch.
+        Rewrite the plugin's configuration file from this module on every switch.
+
+        Off by default, because the plugin has a settings page and the channel list is meant to be
+        edited there while the server runs: writing this file would silently undo whatever was picked in
+        that page on the next switch. With it off, {option}`enabledChannels` still seeds a fresh
+        installation - written once, only if the file does not exist yet - and is left alone afterwards.
+        Set it to true only when this configuration really is the single source of truth; the generated
+        file covers channels, cache, API address and Referer, so artwork settings made in the UI would be
+        dropped by a switch.
       '';
     };
  
@@ -170,9 +180,18 @@ in
     systemd.services.jellyfin.preStart = lib.mkBefore (''
       install -d -m 0755 '${pluginPath}'
       install -m 0644 '${cfg.package}/lib/jellyfin/plugins/ZdfLive/'* '${pluginPath}/'
-    '' + lib.optionalString cfg.manageConfig ''
-      install -d -m 0755 '${config.services.jellyfin.dataDir}/plugins/configurations'
-      install -m 0644 '${pluginConfig}' '${config.services.jellyfin.dataDir}/plugins/configurations/Jellyfin.Plugin.ZdfLive.xml'
-    '');
+    '' + lib.optionalString cfg.manageConfig (''
+      # Managed: this configuration wins, and edits made in the settings page are overwritten.
+      install -d -m 0755 '${configDir}'
+      install -m 0644 '${pluginConfig}' '${configFileTarget}'
+    '') + lib.optionalString (!cfg.manageConfig && cfg.enabledChannels != [ ]) (''
+      # Seeded once: a fresh installation starts from this configuration, and whatever the running server
+      # makes of it afterwards is left alone. Without the guard every switch would undo each channel
+      # ticked in the settings page - which is exactly what manageConfig = false promises not to do.
+      if [ ! -e '${configFileTarget}' ]; then
+        install -d -m 0755 '${configDir}'
+        install -m 0644 '${pluginConfig}' '${configFileTarget}'
+      fi
+    ''));
   };
 }
