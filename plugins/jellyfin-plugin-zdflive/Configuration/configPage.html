@@ -41,7 +41,8 @@
                 </div>
                 <div class="fieldDescription" style="margin-top: 0;">
                     The German XMLTV guide carries no icons, so these come from a logo host instead.
-                    Jellyfin downloads one the first time something wants to show it.
+                    Jellyfin downloads one the first time something wants to show it, and keeps it: an
+                    address that stops working is worth replacing here rather than leaving on the channel.
                 </div>
 
                 <div class="inputContainer">
@@ -59,7 +60,8 @@
                               style="width:100%;font-family:monospace;"
                               placeholder="dreisat=https://example.org/3sat.png&#10;ndr_nds=https://example.org/ndr.png"></textarea>
                     <div class="fieldDescription">One <code>key=url</code> per line, winning over the template.
-                        A few channels have no logo at the default host.</div>
+                        Two channels (3sat and NDR) have no image at the default host, so the plugin's
+                        catalogue points those two at Wikimedia Commons; put a URL here to override that.</div>
                 </div>
 
                 <h2 class="sectionTitle">Streams</h2>

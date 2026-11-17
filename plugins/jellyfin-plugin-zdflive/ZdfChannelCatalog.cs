@@ -47,6 +47,21 @@ public static class ZdfChannelCatalog
     /// <summary>Tuner host id reported to Jellyfin; also the key listings providers enable per tuner.</summary>
     public const string HostId = "zdf";
 
+    /// <summary>
+    /// A logo from Wikimedia Commons, asked for by file name.
+    /// </summary>
+    /// <remarks>
+    /// Special:FilePath is the stable form of such an address: it resolves a file name to the hashed
+    /// storage path and, given a width, hands back a rendered PNG instead of the SVG - which matters
+    /// because Jellyfin picks the stored image format off the response's content type. Both halves are
+    /// better left to Wikimedia than repeated here: the hash moves whenever somebody re-uploads the
+    /// file, and the logo itself is what the article about the channel uses.
+    /// </remarks>
+    /// <param name="fileName">The Commons file name, underscores for spaces.</param>
+    /// <returns>A URL that answers with a PNG.</returns>
+    private static string WikimediaLogo(string fileName)
+        => "https://commons.wikimedia.org/wiki/Special:FilePath/" + fileName + "?width=512";
+
     private const string ZdfGroup = "ZDF Live";
     private const string ArdGroup = "ARD Live";
 
@@ -59,8 +74,12 @@ public static class ZdfChannelCatalog
             "https://zdf-hls-16.akamaized.net/hls/live/2016499/de/high/master.m3u8", true),
         new("zdf_info", "ZDFinfo", "ZDFinfo.de",
             "https://zdf-hls-17.akamaized.net/hls/live/2016500/de/high/master.m3u8", true),
+        // 3sat and NDR are the two catalogue channels epg.best has no image for, so these two carry
+        // their own source: Wikimedia renders the broadcasters' SVG to PNG at whatever width is asked
+        // for, which Special:FilePath does without needing to know the file's hash path.
         new("dreisat", "3sat", "3sat.de",
-            "https://zdf-hls-18.akamaized.net/hls/live/2016501/dach/high/master.m3u8", true),
+            "https://zdf-hls-18.akamaized.net/hls/live/2016501/dach/high/master.m3u8", true,
+            LogoUrl: WikimediaLogo("3sat_2019.svg")),
         new("phoenix", "phoenix", "PHOENIX.de",
             "https://zdf-hls-19.akamaized.net/hls/live/2016502/de/high/master.m3u8", true, LogoId: "Phoenix.de"),
         new("arte", "ARTE", "ARTE.de",
@@ -86,7 +105,8 @@ public static class ZdfChannelCatalog
         new("rbb_berlin", "rbb Berlin", "RBB.de",
             "https://rbb-hls-berlin.akamaized.net/hls/live/2017824/rbb_berlin/index.m3u8", true, ArdGroup),
         new("ndr_nds", "NDR Niedersachsen", "NDR.de",
-            "https://mcdn.ndr.de/ndr/hls/ndr_fs/ndr_nds/master.m3u8", true, ArdGroup),
+            "https://mcdn.ndr.de/ndr/hls/ndr_fs/ndr_nds/master.m3u8", true, ArdGroup,
+            LogoUrl: WikimediaLogo("NDR_Fernsehen_Logo.svg")),
         new("swr_bw", "SWR Baden-Württemberg", "SWR/SR.de",
             "https://swrbwd-hls.akamaized.net/hls/live/2018672/swrbwd/master.m3u8", true, ArdGroup, LogoId: "SWRSR.de")
     ];
