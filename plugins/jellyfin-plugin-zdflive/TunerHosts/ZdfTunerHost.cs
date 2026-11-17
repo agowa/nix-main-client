@@ -62,7 +62,23 @@ public sealed class ZdfTunerHost : ITunerHost, IConfigurableTunerHost
             return [];
         }
 
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         var resolved = await _repository.GetChannelsAsync(!enableCache, cancellationToken).ConfigureAwait(false);
+
+        // Every logo the list wants, checked in one go before the loop: see VerifyLogosAsync for why an
+        // untested URL is worse than no URL at all.
+        var usableLogos = await _repository.VerifyLogosAsync(
+            config.ShowChannelLogos
+                ? resolved.Select(c => ZdfChannelCatalog.LogoFor(c.Definition, config.LogoTemplate, config.LogoUrlFor(c.Definition.Key))).ToList()
+                : Array.Empty<string?>(),
+            cancellationToken).ConfigureAwait(false);
+
+        // Reduces "the catalogue's URL for this channel, if it was confirmed to exist" to one call.
+        string? PickLogo(ZdfChannelDefinition definition)
+        {
+            var url = ZdfChannelCatalog.LogoFor(definition, config.LogoTemplate, config.LogoUrlFor(definition.Key));
+            return url is not null && usableLogos.Contains(url) ? url : null;
+        }
 
         var channels = new List<ChannelInfo>(resolved.Count);
         var number = 1;
@@ -100,7 +116,13 @@ public sealed class ZdfTunerHost : ITunerHost, IConfigurableTunerHost
 
                 ChannelType = ChannelType.TV,
                 ChannelGroup = definition.Group,
-                IsHD = definition.IsHd
+                IsHD = definition.IsHd,
+
+                // The channel's own logo. Jellyfin stores this as the primary image and fetches it the
+                // first time something asks for it (ImageController converts a remote image path to a
+                // local file on demand), so offering a URL is enough - and the German XMLTV guide this
+                // plugin matches against carries no icons of its own, which is why they were missing.
+                ImageUrl = PickLogo(definition)
             });
         }
 
