@@ -21,7 +21,11 @@ public sealed record TwitchChannel(
     string DisplayName,
     TwitchStreamStatus Status,
     DateTime? LiveSinceUtc,
-    DateTime? TitleSinceUtc);
+    DateTime? TitleSinceUtc)
+{
+    /// <summary>Where this login came from: the settings list, the follow list, or both.</summary>
+    public bool FromFollows { get; init; }
+}
 
 /// <summary>
 /// Keeps the configured channels and what Twitch says about them in one place.
@@ -41,7 +45,11 @@ public sealed class TwitchChannelRepository
     /// <summary>How long to wait before retrying after a failed lookup.</summary>
     private static readonly TimeSpan RetryAfterFailure = TimeSpan.FromMinutes(5);
 
+    /// <summary>How long a fetched schedule is reused. The feed itself asks for six hours.</summary>
+    private static readonly TimeSpan ScheduleCacheLifetime = TimeSpan.FromHours(6);
+
     private readonly TwitchApi _api;
+    private readonly TwitchHelix _helix;
     private readonly ILogger<TwitchChannelRepository> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -54,14 +62,18 @@ public sealed class TwitchChannelRepository
     /// <summary>Playback tokens per login, kept just long enough to serve one tune-in.</summary>
     private readonly Dictionary<string, CachedToken> _tokens = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Published schedules per login. They change on the order of days, not minutes.</summary>
+    private readonly Dictionary<string, CachedSchedule> _schedules = new(StringComparer.OrdinalIgnoreCase);
+
     private DateTime _expiresUtc;
     private string? _lastError;
     private readonly HashSet<string> _warnedAboutLogin = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Initializes a new instance of the <see cref="TwitchChannelRepository"/> class.</summary>
-    public TwitchChannelRepository(TwitchApi api, ILogger<TwitchChannelRepository> logger)
+    public TwitchChannelRepository(TwitchApi api, TwitchHelix helix, ILogger<TwitchChannelRepository> logger)
     {
         _api = api;
+        _helix = helix;
         _logger = logger;
     }
 
@@ -76,7 +88,14 @@ public sealed class TwitchChannelRepository
     public async Task<IReadOnlyList<TwitchChannel>> GetChannelsAsync(bool forceRefresh, CancellationToken cancellationToken)
     {
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
-        var logins = ReadConfiguredLogins(config);
+        var configured = ReadConfiguredLogins(config);
+
+        // Configuration order is guide order: it decides the channel numbers.
+        var logins = new List<string>(configured.Count);
+        foreach (var login in configured)
+        {
+            logins.Add(login);
+        }
 
         await EnsureStatusesAsync(forceRefresh, config, logins, cancellationToken).ConfigureAwait(false);
 
@@ -86,13 +105,13 @@ public sealed class TwitchChannelRepository
         {
             if (_byLogin.TryGetValue(login, out var tracked))
             {
-                result.Add(tracked.ToChannel());
+                result.Add(tracked.ToChannel(false));
             }
             else
             {
                 // Never answered about - either nothing was fetched yet, or this login is not worth
                 // asking Twitch about at all (see EnsureStatusesAsync). Either way it is not live.
-                result.Add(new TwitchChannel(login, login, new TwitchStreamStatus(login, login, false, false, null, null, null, null), null, null));
+                result.Add(new TwitchChannel(login, login, new TwitchStreamStatus(login, login, false, false, null, null, null, null, null, null, null, null), null, null));
             }
         }
 
@@ -320,6 +339,12 @@ public sealed class TwitchChannelRepository
                     RetryAfterFailure.TotalMinutes);
             }
 
+            // A schedule is only worth keeping while its channel is.
+            foreach (var stale in _schedules.Keys.Where(k => !tracked.ContainsKey(k)).ToList())
+            {
+                _schedules.Remove(stale);
+            }
+
             _byLogin = tracked;
             _logins = logins;
         }
@@ -329,12 +354,61 @@ public sealed class TwitchChannelRepository
         }
     }
 
+    /// <summary>
+    /// Gets the published broadcast slots of one channel, from its "Schedule" tab.
+    /// </summary>
+    /// <remarks>
+    /// Cached per channel for <see cref="ScheduleCacheLifetime"/>, which is what the feed's own
+    /// X-PUBLISHED-TTL asks for. A guide refresh walks every channel, so without this a channel list of
+    /// fifty would mean fifty HTTP requests per refresh for data that moves weekly. Channels whose
+    /// account Twitch never resolved (no numeric id) simply have no schedule.
+    /// </remarks>
+    /// <param name="login">The normalised login.</param>
+    /// <param name="userId">Twitch's numeric account id, from the status answer.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    public async Task<IReadOnlyList<TwitchScheduledItem>> GetScheduleAsync(string login, string? userId, CancellationToken cancellationToken)
+    {
+        var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+
+        if (!config.UseTwitchSchedule || string.IsNullOrWhiteSpace(userId))
+        {
+            return Array.Empty<TwitchScheduledItem>();
+        }
+
+        if (_schedules.TryGetValue(login, out var cached) && DateTime.UtcNow < cached.ExpiresUtc)
+        {
+            return cached.Items;
+        }
+
+        try
+        {
+            var items = await _helix.GetScheduleAsync(userId, config.ScheduleAheadDays, cancellationToken).ConfigureAwait(false);
+            _schedules[login] = new CachedSchedule(items, DateTime.UtcNow + ScheduleCacheLifetime);
+            return items;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // A channel whose schedule cannot be read keeps its generated guide entry instead of going
+            // blank, and is not asked again until the cache would have expired anyway.
+            _logger.LogWarning(ex, "Twitch Live TV: could not read the schedule of '{Login}'; using the generated guide entry", login);
+            _schedules[login] = new CachedSchedule(Array.Empty<TwitchScheduledItem>(), DateTime.UtcNow + TimeSpan.FromMinutes(30));
+            return Array.Empty<TwitchScheduledItem>();
+        }
+    }
+
     /// <summary>State for one login between two refreshes.</summary>
     private sealed record TrackedChannel(TwitchStreamStatus Status, DateTime? LiveSinceUtc, DateTime? TitleSinceUtc)
     {
-        public TwitchChannel ToChannel()
+        public TwitchChannel ToChannel(bool fromFollows)
             => new(Status.Login, Status.DisplayName, Status, LiveSinceUtc, TitleSinceUtc);
     }
+
+    /// <summary>A fetched schedule and the moment it is fetched again.</summary>
+    private sealed record CachedSchedule(IReadOnlyList<TwitchScheduledItem> Items, DateTime ExpiresUtc);
 
     /// <summary>A playback token and the moment it stops being reused.</summary>
     private sealed record CachedToken(TwitchPlaybackToken Token, DateTime ExpiresUtc);
