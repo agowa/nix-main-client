@@ -25,11 +25,14 @@
                     <div class="fieldDescription">Loading channels...</div>
                 </div>
 
-                <div class="buttonSubmitWrapper fieldDescription" style="margin-bottom:1.5em;">
-                    <button type="button" is="emby-button" id="btnSelectDefaults" class="button-minor emby-button">Only the defaults</button>
-                    <button type="button" is="emby-button" id="btnSelectZdf" class="button-minor emby-button">ZDF offering</button>
-                    <button type="button" is="emby-button" id="btnSelectAll" class="button-minor emby-button">Select all</button>
-                    <button type="button" is="emby-button" id="btnSelectNone" class="button-minor emby-button">None</button>
+                <!-- raised is what gives a button its background and readable foreground in every theme;
+                     "button-minor" does not exist in jellyfin-web, and fieldDescription on the wrapper made
+                     these inherit the dim secondary colour, which left grey text on a browser-default button. -->
+                <div class="vertical-wrap" style="margin-bottom:1.5em;">
+                    <button type="button" is="emby-button" id="btnSelectDefaults" class="raised emby-button">Only the defaults</button>
+                    <button type="button" is="emby-button" id="btnSelectZdf" class="raised emby-button">ZDF offering</button>
+                    <button type="button" is="emby-button" id="btnSelectAll" class="raised emby-button">Select all</button>
+                    <button type="button" is="emby-button" id="btnSelectNone" class="raised emby-button">None</button>
                 </div>
 
                 <h2 class="sectionTitle">Artwork</h2>
@@ -90,7 +93,7 @@
                     </label>
                 </div>
 
-                <div class="buttonSubmitWrapper fieldDescription">
+                <div>
                     <button type="submit" is="emby-button" class="raised button-submit block emby-button">
                         <span>Save</span>
                     </button>
