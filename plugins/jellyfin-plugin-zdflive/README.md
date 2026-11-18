@@ -113,10 +113,14 @@ picture anywhere. `ChannelInfo.ImageUrl` is set from a logo host instead - by de
 differently (`ARD.de` for Das Erste, `SWRSR.de` for the SWR/SR programme, `Phoenix.de`).
 
 Measured against that host with all 17 catalogue channels: fifteen answer `200`; **3sat and NDR are 404** under
-every spelling tried. Those two are offered without a logo rather than with a broken one - each URL is checked
-once before it is handed out, because Jellyfin stores a channel's image only while the item has none, so an
-address that turns out not to exist would stay on that channel permanently. Paste your own URL for them in the
-settings page if you want pictures there; `ShowChannelLogos` off or an empty template switches logos off entirely.
+every spelling tried. Those two therefore carry their own URL in the catalogue - Wikimedia Commons, which has
+the same logos the German Wikipedia articles use, asked for through `Special:FilePath/<file>.svg?width=512` so
+it hands back a rendered PNG and survives a re-upload of the file. A per-channel URL beats the template but not
+the switch: `ShowChannelLogos` off or an empty template still means no artwork at all, and the settings page can
+point either channel somewhere else.
+
+Every URL is HEAD-checked before it is handed out, because Jellyfin stores a channel's image only while the item
+has none - an address that turns out not to exist would stay on that channel permanently.
 
 One limit worth stating because it is often assumed otherwise: a tuner host can hand over exactly **one** image
 per channel (`ChannelInfo` has only `ImagePath`, `ImageUrl`, `HasImage`) - there is no banner field in the
