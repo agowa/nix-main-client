@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using Jellyfin.Plugin.ZdfLive.Configuration;
+using MediaBrowser.Common;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.ZdfLive;
 
@@ -16,13 +18,21 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// <summary>Stable identity of this plugin; must match meta.json.</summary>
     public static readonly Guid PluginId = Guid.Parse("f0a3242b-6358-494a-ad7a-8d5c50c90a20");
 
+    private readonly ILogger<Plugin> _logger;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="Plugin"/> class.
     /// </summary>
-    public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
+    public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer, IApplicationHost applicationHost, ILogger<Plugin> logger)
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
+        _logger = logger;
+
+        // Raised by BasePlugin.UpdateConfiguration, which is what the settings page's POST ends up calling -
+        // and only that: loading a configuration file writes it without the event, so this cannot fire at
+        // startup. See GuideRefresh for why saving has to chase a guide refresh at all.
+        ConfigurationChanged += (_, _) => GuideRefresh.Queue(applicationHost, _logger);
     }
 
     /// <inheritdoc />

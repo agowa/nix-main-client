@@ -303,7 +303,8 @@ export default class ZdfLiveConfigPage {
                 window.Dashboard.processPluginConfigurationUpdateResult();
             }
 
-            this.status("Saved. Run the Refresh Guide task to apply it to the guide immediately.");
+            // Saving queues the rebuild server-side (see GuideRefresh.cs), so there is nothing left to run here.
+            this.status("Saved - the channel list is being rebuilt now.");
         } catch (error) {
             console.error("[ZDF Live TV] could not save the configuration", error);
             this.status("Could not save: " + await describeFailure(error), true);

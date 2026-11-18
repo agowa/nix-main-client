@@ -10,7 +10,9 @@
                         whatever the broadcasters' stream API is serving right now, so a channel they add
                         appears here without rebuilding anything - one that only the API knows about just
                         has no programme-guide id attached yet, and Jellyfin matches those by name instead.
-                        Saving applies immediately; run <em>Refresh Guide</em> to renumber at once.
+                        Saving applies by itself: the plugin queues the same rebuild the server runs when a
+                        tuner device is added, so the list and its numbering follow what you ticked here
+                        without you having to go looking for a task to start.
                     </p>
                 </div>
 
