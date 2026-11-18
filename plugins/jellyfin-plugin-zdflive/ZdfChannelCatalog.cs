@@ -65,7 +65,19 @@ public static class ZdfChannelCatalog
     private const string ZdfGroup = "ZDF Live";
     private const string ArdGroup = "ARD Live";
 
-    /// <summary>The seven channels that https://www.zdf.de/live-tv offers, in the order the page lists them.</summary>
+    /// <summary>Where the channels that are neither ZDF's nor an ARD Landesrundfunkanstalt's end up.</summary>
+    private const string PlatformGroup = "ARD/ZDF Live";
+
+    /// <summary>
+    /// Every channel this plugin names itself, grouped and ordered the way the settings page shows them.
+    /// </summary>
+    /// <remarks>
+    /// The first seven are what https://www.zdf.de/live-tv offers; the rest arrive through the same API.
+    /// A channel missing from here is not lost - the stream API's own list is what the settings page can
+    /// offer at all (see <see cref="ZdfChannelRepository.GetKnownChannelsAsync"/>) - but an unlisted one
+    /// has no guide id, no artwork and whatever name the API happens to send, which for NDR is
+    /// "NRD Niedersachsen" and for the parliamentary channels contains soft hyphens.
+    /// </remarks>
     public static readonly IReadOnlyList<ZdfChannelDefinition> All =
     [
         new("zdf", "ZDF", "ZDF.de",
@@ -94,21 +106,54 @@ public static class ZdfChannelCatalog
             "https://tagesschau.akamaized.net/hls/live/2020117/tagesschau/tagesschau_3/master.m3u8", true, ArdGroup, LogoId: "Tagesschau24.de"),
         new("ard_alpha", "ARD-alpha", "ARD.alpha.de",
             "https://mcdn.br.de/br/fs/ard_alpha/hls/de/master.m3u8", true, ArdGroup, LogoId: "ARDalpha.de"),
+        new("one", "ONE", "ONE.de",
+            "https://mcdn-one.ard.de/ardone/hls/master.m3u8", false, ArdGroup),
         new("wdr", "WDR", "WDR.de",
             "https://wdr-live.ard-mcdn.de/wdr/live/hls/de/master.m3u8", true, ArdGroup),
         new("mdr_sachsen", "MDR Sachsen", "MDR.de",
             "https://mdrtvsnhls.akamaized.net/hls/live/2016928/mdrtvsn/master.m3u8", true, ArdGroup),
+        new("mdr_sachsen_anhalt", "MDR Sachsen-Anhalt", string.Empty,
+            "https://mdrtvsahls.akamaized.net/hls/live/2016879/mdrtvsa/master.m3u8", false, ArdGroup),
+        new("mdr_thueringen", "MDR Thüringen", string.Empty,
+            "https://mdrtvthhls.akamaized.net/hls/live/2016880/mdrtvth/master.m3u8", false, ArdGroup),
         new("br_nord", "BR Nord", "BR.de",
             "https://mcdn.br.de/br/fs/bfs_nord/hls/de/master.m3u8", true, ArdGroup),
+        new("br_sued", "BR Süd", string.Empty,
+            "https://mcdn.br.de/br/fs/bfs_sued/hls/de/master.m3u8", false, ArdGroup),
         new("hr", "HR", "HR.de",
             "https://hr-live.ard-mcdn.de/hr/live/hls/de/master.m3u8", true, ArdGroup),
         new("rbb_berlin", "rbb Berlin", "RBB.de",
             "https://rbb-hls-berlin.akamaized.net/hls/live/2017824/rbb_berlin/index.m3u8", true, ArdGroup),
+        new("rbb_brandenburg", "rbb Brandenburg", string.Empty,
+            "https://rbb-hls-brandenburg.akamaized.net/hls/live/2017825/rbb_brandenburg/index.m3u8", false, ArdGroup),
         new("ndr_nds", "NDR Niedersachsen", "NDR.de",
             "https://mcdn.ndr.de/ndr/hls/ndr_fs/ndr_nds/master.m3u8", true, ArdGroup,
             LogoUrl: WikimediaLogo("NDR_Fernsehen_Logo.svg")),
+        new("ndr_hh", "NDR Hamburg", string.Empty,
+            "https://mcdn.ndr.de/ndr/hls/ndr_fs/ndr_hh/master.m3u8", false, ArdGroup),
+        new("ndr_mv", "NDR Mecklenburg-Vorpommern", string.Empty,
+            "https://mcdn.ndr.de/ndr/hls/ndr_fs/ndr_mv/master.m3u8", false, ArdGroup),
+        new("ndr_sh", "NDR Schleswig-Holstein", string.Empty,
+            "https://mcdn.ndr.de/ndr/hls/ndr_fs/ndr_sh/master.m3u8", false, ArdGroup),
+
+        // The two smallest members of the ARD, and the only ones whose whole national feed is this window.
+        new("rb", "Radio Bremen", string.Empty,
+            "https://rbhlslive.akamaized.net/hls/live/2020435/rbfs/master.m3u8", false, ArdGroup),
+        new("sr", "SR", string.Empty,
+            "https://srfs.akamaized.net/hls/live/689649/srfsgeo/master.m3u8", false, ArdGroup),
         new("swr_bw", "SWR Baden-Württemberg", "SWR/SR.de",
-            "https://swrbwd-hls.akamaized.net/hls/live/2018672/swrbwd/master.m3u8", true, ArdGroup, LogoId: "SWRSR.de")
+            "https://swrbwd-hls.akamaized.net/hls/live/2018672/swrbwd/master.m3u8", true, ArdGroup, LogoId: "SWRSR.de"),
+        new("swr_rp", "SWR Rheinland-Pfalz", string.Empty,
+            "https://swrrpd-hls.akamaized.net/hls/live/2018676/swrrpd/master.m3u8", false, ArdGroup),
+
+        // Not a broadcaster but on the same platform: the two channels of the German Bundestag. The API's
+        // names for these carry soft hyphens ("Parlaments­fern­sehen"), which is not what to show in a guide.
+        new("parlamentsfernsehen_1", "Parlamentsfernsehen Kanal 1", string.Empty,
+            "https://bttv-live-z.r53.cdn.tv1.eu/13014bundestag-hk1/_definst_/live/video/hk1_de.smil/playlist.m3u8",
+            false, PlatformGroup, IsHd: false),
+        new("parlamentsfernsehen_2", "Parlamentsfernsehen Kanal 2", string.Empty,
+            "https://bttv-live-z.r53.cdn.tv1.eu/13014bundestag-hk2/_definst_/live/video/hk2_de.smil/playlist.m3u8",
+            false, PlatformGroup, IsHd: false)
     ];
 
     /// <summary>Keys of the channels that are on unless the user configured otherwise.</summary>

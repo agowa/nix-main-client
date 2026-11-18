@@ -82,6 +82,13 @@
       "default": true
     },
     {
+      "key": "one",
+      "name": "ONE",
+      "epgId": "ONE.de",
+      "group": "ARD Live",
+      "default": false
+    },
+    {
       "key": "wdr",
       "name": "WDR",
       "epgId": "WDR.de",
@@ -98,12 +105,33 @@
       "default": true
     },
     {
+      "key": "mdr_sachsen_anhalt",
+      "name": "MDR Sachsen-Anhalt",
+      "epgId": "",
+      "group": "ARD Live",
+      "default": false
+    },
+    {
+      "key": "mdr_thueringen",
+      "name": "MDR Th\u00fcringen",
+      "epgId": "",
+      "group": "ARD Live",
+      "default": false
+    },
+    {
       "key": "br_nord",
       "name": "BR Nord",
       "epgId": "BR.de",
       "group": "ARD Live",
       "logoId": "BR.de",
       "default": true
+    },
+    {
+      "key": "br_sued",
+      "name": "BR S\u00fcd",
+      "epgId": "",
+      "group": "ARD Live",
+      "default": false
     },
     {
       "key": "hr",
@@ -122,6 +150,13 @@
       "default": true
     },
     {
+      "key": "rbb_brandenburg",
+      "name": "rbb Brandenburg",
+      "epgId": "",
+      "group": "ARD Live",
+      "default": false
+    },
+    {
       "key": "ndr_nds",
       "name": "NDR Niedersachsen",
       "epgId": "NDR.de",
@@ -130,12 +165,68 @@
       "default": true
     },
     {
+      "key": "ndr_hh",
+      "name": "NDR Hamburg",
+      "epgId": "",
+      "group": "ARD Live",
+      "default": false
+    },
+    {
+      "key": "ndr_mv",
+      "name": "NDR Mecklenburg-Vorpommern",
+      "epgId": "",
+      "group": "ARD Live",
+      "default": false
+    },
+    {
+      "key": "ndr_sh",
+      "name": "NDR Schleswig-Holstein",
+      "epgId": "",
+      "group": "ARD Live",
+      "default": false
+    },
+    {
+      "key": "rb",
+      "name": "Radio Bremen",
+      "epgId": "",
+      "group": "ARD Live",
+      "default": false
+    },
+    {
+      "key": "sr",
+      "name": "SR",
+      "epgId": "",
+      "group": "ARD Live",
+      "default": false
+    },
+    {
       "key": "swr_bw",
-      "name": "SWR Baden-Württemberg",
+      "name": "SWR Baden-W\u00fcrttemberg",
       "epgId": "SWR/SR.de",
       "group": "ARD Live",
       "logoId": "SWRSR.de",
       "default": true
+    },
+    {
+      "key": "swr_rp",
+      "name": "SWR Rheinland-Pfalz",
+      "epgId": "",
+      "group": "ARD Live",
+      "default": false
+    },
+    {
+      "key": "parlamentsfernsehen_1",
+      "name": "Parlamentsfernsehen Kanal 1",
+      "epgId": "",
+      "group": "ARD/ZDF Live",
+      "default": false
+    },
+    {
+      "key": "parlamentsfernsehen_2",
+      "name": "Parlamentsfernsehen Kanal 2",
+      "epgId": "",
+      "group": "ARD/ZDF Live",
+      "default": false
     }
   ]
 }

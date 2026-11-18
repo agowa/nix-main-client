@@ -71,8 +71,13 @@ let
   # Keep in sync with ZdfChannelCatalog.cs (the catalogue also carries each channel's guide id).
   catalogKeys = [
     "zdf" "zdf_neo" "zdf_info" "dreisat" "phoenix" "arte" "kika"
-    "das_erste" "tagesschau24" "ard_alpha" "wdr" "mdr_sachsen" "br_nord"
-    "hr" "rbb_berlin" "ndr_nds" "swr_bw"
+    "das_erste" "tagesschau24" "ard_alpha" "one" "wdr"
+    "mdr_sachsen" "mdr_sachsen_anhalt" "mdr_thueringen"
+    "br_nord" "br_sued" "hr"
+    "rbb_berlin" "rbb_brandenburg"
+    "ndr_nds" "ndr_hh" "ndr_mv" "ndr_sh"
+    "rb" "sr" "swr_bw" "swr_rp"
+    "parlamentsfernsehen_1" "parlamentsfernsehen_2"
   ];
 in
 {
