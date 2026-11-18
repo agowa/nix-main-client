@@ -74,7 +74,10 @@ Defaults are complete (the seven channels above, 60 min URL cache), so no config
 The normal way to change them is the plugin's own **Settings page** (Dashboard → Plugins → ZDF Live TV →
 Settings): every channel the catalogue knows plus anything else the stream API is serving right now, listed with
 its guide id and group and ticked from what is configured, with a filter and select-all/none shortcuts. Saving
-takes effect on the next *Refresh Guide* - no restart, no rebuild. Channels that are configured but currently
+takes effect by itself - no restart, no rebuild and nothing to press elsewhere: saving queues the same
+rebuild that adding a tuner device queues (`GuideRefresh.cs`), which matters more here than it sounds because
+this plugin ships no programme guide at all, so "run the guide task" was advice about somebody else's feature.
+Channels that are configured but currently
 unresolvable stay in the list, or saving would quietly delete them; channels only the API knows about can be
 ticked too (they simply have no guide id, so programme data matches by name). Logos, the logo host and a
 per-channel logo URL are on the same page.
@@ -140,6 +143,15 @@ Built with `nix build` from a clean tree and run in a real server instance:
   ffprobe returned real media info (`Container: hls`, h264 640x360@50, AAC stereo "Deutsch"), Jellyfin
   served a master playlist and then actual `.ts` segments through it
 * declarative `enabledChannels` respected (7 → 2 channels and back)
+
+Added since, on a running server (2026-11-18):
+
+* saving applies without being asked twice: POSTing a configuration that dropped `ndr_nds` removed *NDR
+  Niedersachsen* from the library on its own (`ZDF Live TV: saved, queued a guide refresh`, then
+  `TaskManager: Refresh Guide Completed after 0 minute(s) and 8 seconds`); putting it back restored the channel.
+  Two saves produced two runs, so the hook does not feed itself
+* `/Items/{id}/Images/Primary` now returns real artwork for the two channels epg.best lacks: 3sat 26523 B and
+  NDR 19438 B, byte-for-byte what Wikimedia Commons serves for those files
 
 ZDF/ZDFneo/ZDFinfo/3sat/phoenix playback could **not** be tested from the network available here, because
 that egress is not in Germany - see the geo section. Everything up to and including handing the URL to the

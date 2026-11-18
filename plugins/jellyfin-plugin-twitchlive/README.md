@@ -44,9 +44,11 @@ neither a restart nor a rebuild:
 * **Nix** - `services.jellyfinTwitch.channels`, which *seeds* the file on a fresh installation and leaves
   it alone afterwards; set `manageConfig = true` only if this configuration should win every switch.
 
-After an edit, channel numbers and live/offline groups in Jellyfin's database follow on the next guide
-refresh - run the *Refresh Guide* task to see it immediately. The stream itself reacts at once: tuning is
-resolved against the current list, not the last refresh.
+Saving applies by itself: the plugin queues the rebuild that a tuner device save also queues
+(`GuideRefresh.cs`), so channel numbers and live/offline groups follow without anyone starting a task. It goes
+through the server's own `ITaskManager`, so two quick saves still mean one run at a time, and the run is
+visible on the tasks page like any other. The stream itself always reacted at once: tuning is resolved against
+the current list, not the last refresh.
 
 The configuration page needs two embedded resources. Jellyfin 10.11 no longer executes `<script>` inside a
 plugin page (`data-require` and its script loader are gone from jellyfin-web); the view container reads a
@@ -176,6 +178,10 @@ file from Nix would delete any other tuner or EPG. Both steps survive a rebuild,
 * A token outlives its usefulness but not your stream: it authorises only the master playlist, while the
   media playlists and segments inside are separately signed - so a stream keeps running after the token
   that started it has expired.
+* Saving applies on its own (2026-11-18): adding `lirik` to `Channels` with nothing but a POST to
+  `/Plugins/{id}/Configuration` put LIRIK in the library - log: `Twitch Live TV: saved, queued a guide
+  refresh`, then `TaskManager: Refresh Guide Completed after 0 minute(s) and 23 seconds`. No task was
+  started by hand, and two saves produced two runs rather than a loop.
 
 ```sh
 # Live state of two channels in one request (the shape TwitchApi builds):
