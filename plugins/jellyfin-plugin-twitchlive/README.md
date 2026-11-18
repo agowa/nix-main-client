@@ -132,9 +132,20 @@ providers in `<configDir>/livetv.xml` together with everything else configured b
 file from Nix would delete any other tuner or EPG. Both steps survive a rebuild, and unlike the ZDF plugin
 **neither needs a URL**:
 
-1. **Guide + Channels → Live TV → add tuner source → "Twitch Live TV"** (or press *Detect*). The URL field
-   is ignored; channels come from the plugin configuration. Required at all because Jellyfin only offers
-   Live TV once ≥1 tuner source exists.
+1. **Guide + Channels → Live TV → add tuner source**, then either of the two - they are alternatives, not
+   steps in a row:
+   * press **Detect My Devices** and pick "Twitch Live TV" from the results. The list is `GET
+     /LiveTv/Tuners/Discover`, which asks every installed tuner type at once and ignores whatever the
+     dropdown says, so with both plugins of this flake installed you will be offered both rows however
+     hard you tried to select one. Pick yours; a source already added is not offered again. This path also
+     stores the name and device id the plugin reports, which is why it shows up as "Twitch Live TV".
+   * or pick **Twitch Live TV** in the dropdown and continue - nothing needs detecting here, so pressing
+     Detect first only adds a step. The form then saves the source without a name, and the tuner list
+     labels it "Unknown" instead of "Twitch Live TV": looks wrong, costs nothing, because everything that has
+     to work (including which plugin's channels appear) keys on the type string rather than the label.
+
+   Either way the URL field is ignored; channels come from the plugin configuration. Required at all
+   because Jellyfin only offers Live TV once ≥1 tuner source exists.
 2. **Same page → add programme guide → "Twitch Live TV"**. No login, no path. Channels match automatically:
    both sides key on the login (`ChannelInfo.TunerChannelId`).
 

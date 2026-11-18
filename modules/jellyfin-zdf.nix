@@ -23,8 +23,13 @@
 # file from here would silently delete any other tuner or EPG added through the web UI, so the two
 # one-time steps below stay in the UI on purpose:
 #
-#   1. Guide + Channels -> Live TV -> add tuner source -> "ZDF Live TV" (its own entry; the URL field
-#      is irrelevant and may be left as offered by "Detect").
+#   1. Guide + Channels -> Live TV -> add tuner source, then either press "Detect My Devices" and pick
+#      "ZDF Live TV", or select it in the dropdown and continue - the two are alternatives. Detection
+#      asks every installed tuner type at once (LiveTv/Tuners/Discover ignores the dropdown), so with
+#      both plugins installed it offers both rows whatever was selected; picking from the dropdown
+#      needs no detection at all, but saves the source unnamed ("Unknown" in the list). Both work:
+#      what decides which plugin's channels appear is the type string, not the label. The URL field is
+#      irrelevant either way.
 #   2. Same page -> add programme guide -> XMLTV, path
 #      https://epgshare01.online/epgshare01/epg_ripper_DE1.xml.gz (German guide, gzipped - Jellyfin
 #      unpacks .gz URLs itself). Channels are matched by their guide id automatically, so no manual

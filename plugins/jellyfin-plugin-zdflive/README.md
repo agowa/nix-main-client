@@ -33,9 +33,21 @@ Installing the plugin is not quite "Live TV on", and that is deliberate: Jellyfi
 guide providers in `<configDir>/livetv.xml` together with everything else configured by hand, so writing
 that file from Nix would delete any other tuner or EPG. Both steps survive a rebuild:
 
-1. **Guide + Channels → Live TV → add tuner source → "ZDF Live TV"** (or press *Detect*). The URL field is
-   ignored - channel URLs come from the plugin, it only has to look like a URL for the form's validation.
-   This step is required at all because Jellyfin only offers Live TV once ≥1 tuner source exists.
+1. **Guide + Channels → Live TV → add tuner source**, then either of the two - they are alternatives, not
+   steps in a row:
+   * press **Detect My Devices** and pick "ZDF Live TV" from the results. The list is `GET
+     /LiveTv/Tuners/Discover`, which asks every installed tuner type at once and ignores whatever the
+     dropdown says, so with both plugins of this flake installed you will be offered both rows however
+     hard you tried to select one. Pick yours; a source already added is not offered again. This path also
+     stores the name and device id the plugin reports, which is why it shows up as "ZDF Live TV".
+   * or pick **ZDF Live TV** in the dropdown and continue - nothing needs detecting here, so pressing
+     Detect first only adds a step. The form then saves the source without a name, and the tuner list
+     labels it "Unknown" instead of "ZDF Live TV": looks wrong, costs nothing, because everything that has
+     to work (including which plugin's channels appear) keys on the type string rather than the label.
+
+   Either way the URL field is ignored - channel URLs come from the plugin, it only has to look like a URL
+   for the form's validation. This step is required at all because Jellyfin only offers Live TV once ≥1
+   tuner source exists.
 2. **Same page → add programme guide → XMLTV**, path
    `https://epgshare01.online/epgshare01/epg_ripper_DE1.xml.gz`. Jellyfin unpacks `.gz` URLs itself.
    No manual channel mapping is needed: every channel carries its guide id in
