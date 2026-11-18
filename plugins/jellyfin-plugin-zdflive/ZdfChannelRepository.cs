@@ -176,7 +176,7 @@ public sealed class ZdfChannelRepository
             {
                 // The batch may return before these do, and nothing else will ever look at them; each one
                 // already handles its own failures, this is only so a late exception cannot go unobserved.
-                check.ContinueWith(
+                _ = check.ContinueWith(
                     static t => _ = t.Exception,
                     CancellationToken.None,
                     TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
