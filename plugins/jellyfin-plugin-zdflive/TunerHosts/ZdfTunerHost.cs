@@ -30,13 +30,15 @@ public sealed class ZdfTunerHost : ITunerHost, IConfigurableTunerHost
 
     private readonly ZdfChannelRepository _repository;
     private readonly LiveTvDevices _devices;
+    private readonly ChannelArtwork _artwork;
     private readonly ILogger<ZdfTunerHost> _logger;
 
     /// <summary>Initializes a new instance of the <see cref="ZdfTunerHost"/> class.</summary>
-    public ZdfTunerHost(ZdfChannelRepository repository, LiveTvDevices devices, ILogger<ZdfTunerHost> logger)
+    public ZdfTunerHost(ZdfChannelRepository repository, LiveTvDevices devices, ChannelArtwork artwork, ILogger<ZdfTunerHost> logger)
     {
         _repository = repository;
         _devices = devices;
+        _artwork = artwork;
         _logger = logger;
     }
 
@@ -125,6 +127,16 @@ public sealed class ZdfTunerHost : ITunerHost, IConfigurableTunerHost
                 ImageUrl = PickLogo(definition)
             });
         }
+
+        // Last, because it is the part nobody else will do: a channel that still holds an image from an
+        // earlier version of this plugin keeps it for good unless something replaces it. See ChannelArtwork.
+        var logosByChannelId = new Dictionary<string, string?>(channels.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var channel in channels)
+        {
+            logosByChannelId[channel.Id] = channel.ImageUrl;
+        }
+
+        await _artwork.RepairAsync(logosByChannelId, cancellationToken).ConfigureAwait(false);
 
         _logger.LogDebug(
             "ZDF Live TV: offering {Count} channels on tuner device '{Device}'",

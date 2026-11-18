@@ -209,8 +209,29 @@ public sealed class ZdfChannelRepository
         return usable;
     }
 
+    /// <summary>
+    /// Says whether one logo address is there, on the remembered answer where there is a fresh one.
+    /// </summary>
+    /// <remarks>
+    /// Unlike <see cref="VerifyLogosAsync"/> this waits for a verdict instead of assuming one: callers
+    /// use it to decide that something already stored is genuinely gone, and guessing in either
+    /// direction there is expensive. The bias stays the same though - only 403/404/410 say "missing".
+    /// </remarks>
+    /// <param name="url">The address to ask.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns><c>true</c> unless the address is known not to be served.</returns>
+    public async Task<bool> LogoExistsAsync(string url, CancellationToken cancellationToken)
+    {
+        if (_logos.TryGetValue(url, out var cached) && DateTime.UtcNow < cached.ExpiresUtc)
+        {
+            return cached.Exists;
+        }
+
+        return await CheckLogoAsync(url, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Asks one logo URL whether it exists, and records the verdict.</summary>
-    private async Task CheckLogoAsync(string url, CancellationToken cancellationToken)
+    private async Task<bool> CheckLogoAsync(string url, CancellationToken cancellationToken)
     {
         try
         {
@@ -224,7 +245,7 @@ public sealed class ZdfChannelRepository
             if (response.IsSuccessStatusCode)
             {
                 Remember(url, true);
-                return;
+                return true;
             }
 
             var code = (int)response.StatusCode;
@@ -235,12 +256,13 @@ public sealed class ZdfChannelRepository
                 _logger.LogInformation(
                     "ZDF Live TV: no logo at {Url}; the channel is offered without one - its own URL in the plugin settings would fix that",
                     url);
-                return;
+                return false;
             }
 
             // Anything else (5xx, a redirect loop, a host that dislikes HEAD) says nothing about whether
             // the picture exists.
             Remember(url, true);
+            return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -252,6 +274,7 @@ public sealed class ZdfChannelRepository
             // direction is the cheap one to be wrong in.
             Remember(url, true);
             _logger.LogDebug(ex, "ZDF Live TV: could not check the logo at {Url}; offering it unchecked", url);
+            return true;
         }
     }
 
