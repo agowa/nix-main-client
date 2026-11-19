@@ -119,6 +119,12 @@ public sealed class LiveTvDevices
     /// is what avoids a cycle: <c>TunerHostManager</c> implements it and is itself built from every
     /// registered <see cref="ITunerHost"/>, this plugin's included.
     /// </para>
+    /// <para>
+    /// Normally nothing is left to do here, because the tuner host names the entry while it is being saved
+    /// (<c>ZdfTunerHost.Validate()</c>, which the server calls on the copy of the device it then writes).
+    /// This pass is the net for what predates that - a device an older version of this plugin added stays
+    /// unnamed until something asks for the channel list.
+    /// </para>
     /// </remarks>
     /// <param name="friendlyName">What to call the device; the tuner host's own name.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
