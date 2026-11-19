@@ -74,6 +74,10 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
             return [];
         }
 
+        // A source added from the dropdown rather than by detection arrives without a name, which the
+        // tuner list then labels "Unknown" - see LiveTvDevices for why that is worth fixing here.
+        await _devices.EnsureFriendlyNamesAsync(Name, cancellationToken).ConfigureAwait(false);
+
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         var channels = await _repository.GetChannelsAsync(!enableCache, cancellationToken).ConfigureAwait(false);
 
