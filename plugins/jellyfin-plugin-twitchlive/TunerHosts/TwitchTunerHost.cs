@@ -237,6 +237,17 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
             _logger.LogInformation("Twitch Live TV: ignoring Url '{Url}' - this tuner does not read a playlist", info.Url);
         }
 
+        // Naming belongs here because this is the only moment the server hands us the device it is about to
+        // write: TunerHostManager.SaveTunerHost() validates the very copy of the entry that it then stores in
+        // livetv.xml. A source added by picking this plugin in the dropdown arrives without a name - that
+        // form only sends one if the field was filled in - and until something names it the tuner list titles
+        // the row "Unknown", which reads like a failed install (see LiveTvDevices). Doing it here means the
+        // label is right as the page redraws itself instead of after the next guide refresh.
+        if (string.IsNullOrWhiteSpace(info.FriendlyName))
+        {
+            info.FriendlyName = Name;
+        }
+
         return Task.CompletedTask;
     }
 
