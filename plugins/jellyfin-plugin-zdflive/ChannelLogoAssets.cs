@@ -45,6 +45,9 @@ public sealed class ChannelLogoAssets
     private readonly ILogger<ChannelLogoAssets> _logger;
     private readonly object _gate = new();
 
+    /// <summary>Names the catalogue asked for that this assembly does not contain, so it is said once.</summary>
+    private readonly HashSet<string> _missing = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>File name to absolute path once unpacked; empty when unpacking is not possible at all.</summary>
     private Dictionary<string, string>? _unpacked;
 
@@ -80,7 +83,24 @@ public sealed class ChannelLogoAssets
 
         var unpacked = EnsureUnpacked();
 
-        return unpacked.TryGetValue(fileName, out var path) ? path : null;
+        if (unpacked.TryGetValue(fileName, out var path))
+        {
+            return path;
+        }
+
+        // Reaching this means the catalogue names a logo that is not embedded - a typo in
+        // ZdfChannelCatalog, or an Assets/ file that did not make it into the build. The channel keeps its
+        // row and simply has no picture, so say where to look; once per name, because this is asked for on
+        // every channel list.
+        lock (_gate)
+        {
+            if (_missing.Add(fileName))
+            {
+                _logger.LogWarning("ZDF Live TV: the catalogue asks for the logo '{File}', which this build does not contain", fileName);
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Unpacks the embedded logos once, and remembers what where ended up where.</summary>

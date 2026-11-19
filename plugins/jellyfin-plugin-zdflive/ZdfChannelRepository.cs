@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
@@ -143,13 +144,22 @@ public sealed class ZdfChannelRepository
     /// refresh and the tuner page wait for.
     /// </para>
     /// </remarks>
-    /// <param name="urls">The URLs the catalogue produced; nulls and duplicates are ignored.</param>
+    /// <param name="urls">What the catalogue produced per channel - an address or a bundled file; nulls and
+    /// duplicates are ignored.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>The subset that should be offered.</returns>
     public async Task<HashSet<string>> VerifyLogosAsync(IReadOnlyCollection<string?> urls, CancellationToken cancellationToken)
     {
+        // A logo that ships inside the plugin is not something to ask a host about: it was either unpacked
+        // onto disk or it was not (see ChannelLogoAssets), which is a question File.Exists answers better.
+        var bundled = urls
+            .Where(url => !string.IsNullOrWhiteSpace(url) && !ZdfChannelCatalog.IsRemote(url))
+            .Select(url => url!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         var wanted = urls
-            .Where(url => !string.IsNullOrWhiteSpace(url))
+            .Where(url => !string.IsNullOrWhiteSpace(url) && ZdfChannelCatalog.IsRemote(url))
             .Select(url => url!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -196,6 +206,18 @@ public sealed class ZdfChannelRepository
         }
 
         var usable = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var file in bundled)
+        {
+            if (File.Exists(file))
+            {
+                usable.Add(file);
+            }
+            else
+            {
+                _logger.LogWarning("ZDF Live TV: the bundled logo {File} is not on disk; the channel is offered without one", file);
+            }
+        }
 
         foreach (var url in wanted)
         {

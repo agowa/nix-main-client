@@ -19,12 +19,14 @@ namespace Jellyfin.Plugin.ZdfLive;
 /// <param name="LogoId">
 /// The id the logo host knows this channel under. Usually its guide id, but not always: that host keys
 /// on its own catalogue and spells a few of them differently ("ARD.de" for Das Erste, "SWRSR.de" for the
-/// SWR/SR common programme). Ignored when <see cref="LogoUrl"/> is set.
+/// SWR/SR common programme). Ignored when <see cref="LogoAsset"/> is set.
 /// </param>
-/// <param name="LogoUrl">
-/// A complete logo URL for a channel the template's host does not carry - 3sat, everything NDR makes
-/// and the two smallest ARD members among them. Beats the template plus id, but still yields to an
-/// explicit URL from the settings and to switching logos off there.
+/// <param name="LogoAsset">
+/// File name of a logo that comes inside this plugin's assembly instead of being fetched from anywhere -
+/// used for the channels the template's host does not carry at all (3sat, everything NDR makes, the two
+/// smallest ARD members and the Bundestag's own two). Beats the template plus id, but still yields to an
+/// explicit URL from the settings page and to switching logos off there. See <see cref="ChannelLogoAssets"/>
+/// for where the file ends up on disk and Assets/SOURCES.md for where it came from.
 /// </param>
 public sealed record ZdfChannelDefinition(
     string Key,
@@ -35,7 +37,7 @@ public sealed record ZdfChannelDefinition(
     string Group = "ZDF Live",
     bool IsHd = true,
     string? LogoId = null,
-    string? LogoUrl = null);
+    string? LogoAsset = null);
 
 /// <summary>
 /// The channel catalogue. Metadata is curated here on purpose: the upstream API's own names are
@@ -47,20 +49,15 @@ public static class ZdfChannelCatalog
     /// <summary>Tuner host id reported to Jellyfin; also the key listings providers enable per tuner.</summary>
     public const string HostId = "zdf";
 
-    /// <summary>
-    /// A logo from Wikimedia Commons, asked for by file name.
-    /// </summary>
-    /// <remarks>
-    /// Special:FilePath is the stable form of such an address: it resolves a file name to the hashed
-    /// storage path and, given a width, hands back a rendered PNG instead of the SVG - which matters
-    /// because Jellyfin picks the stored image format off the response's content type. Both halves are
-    /// better left to Wikimedia than repeated here: the hash moves whenever somebody re-uploads the
-    /// file, and the logo itself is what the article about the channel uses.
-    /// </remarks>
-    /// <param name="fileName">The Commons file name, underscores for spaces.</param>
-    /// <returns>A URL that answers with a PNG.</returns>
-    private static string WikimediaLogo(string fileName)
-        => "https://commons.wikimedia.org/wiki/Special:FilePath/" + Uri.EscapeDataString(fileName) + "?width=512";
+    // The logos of the channels no logo host carries, shipped inside the assembly (Assets/, sources listed in
+    // Assets/SOURCES.md). Named here instead of spelled out per entry so that a channel asking for a file
+    // that is not in there cannot quietly end up without a picture.
+    private const string Logo3sat = "logo_3sat.png";
+    private const string LogoNdr = "logo_ndr.png";
+    private const string LogoOne = "logo_one.png";
+    private const string LogoRadioBremen = "logo_radio_bremen.png";
+    private const string LogoSR = "logo_sr.png";
+    private const string LogoBundestag = "logo_bundestag.png";
 
     private const string ZdfGroup = "ZDF Live";
     private const string ArdGroup = "ARD Live";
@@ -86,12 +83,11 @@ public static class ZdfChannelCatalog
             "https://zdf-hls-16.akamaized.net/hls/live/2016499/de/high/master.m3u8", true),
         new("zdf_info", "ZDFinfo", "ZDFinfo.de",
             "https://zdf-hls-17.akamaized.net/hls/live/2016500/de/high/master.m3u8", true),
-        // 3sat and NDR are the two catalogue channels epg.best has no image for, so these two carry
-        // their own source: Wikimedia renders the broadcasters' SVG to PNG at whatever width is asked
-        // for, which Special:FilePath does without needing to know the file's hash path.
+        // 3sat is one of the channels the default logo host has no image for - probed once: 404 for 3sat.de,
+        // NDR.de, ONE.de, SR.de and RB.de among others - so its picture comes from inside the plugin.
         new("dreisat", "3sat", "3sat.de",
             "https://zdf-hls-18.akamaized.net/hls/live/2016501/dach/high/master.m3u8", true,
-            LogoUrl: WikimediaLogo("3sat_2019.svg")),
+            LogoAsset: Logo3sat),
         new("phoenix", "phoenix", "PHOENIX.de",
             "https://zdf-hls-19.akamaized.net/hls/live/2016502/de/high/master.m3u8", true, LogoId: "Phoenix.de"),
         new("arte", "ARTE", "ARTE.de",
@@ -108,7 +104,7 @@ public static class ZdfChannelCatalog
             "https://mcdn.br.de/br/fs/ard_alpha/hls/de/master.m3u8", true, ArdGroup, LogoId: "ARDalpha.de"),
         new("one", "ONE", "ONE.de",
             "https://mcdn-one.ard.de/ardone/hls/master.m3u8", false, ArdGroup,
-            LogoUrl: WikimediaLogo("One_2022.svg")),
+            LogoAsset: LogoOne),
         new("wdr", "WDR", "WDR.de",
             "https://wdr-live.ard-mcdn.de/wdr/live/hls/de/master.m3u8", true, ArdGroup),
         new("mdr_sachsen", "MDR Sachsen", "MDR.de",
@@ -129,24 +125,24 @@ public static class ZdfChannelCatalog
             "https://rbb-hls-brandenburg.akamaized.net/hls/live/2017825/rbb_brandenburg/index.m3u8", false, ArdGroup, LogoId: "RBB.de"),
         new("ndr_nds", "NDR Niedersachsen", "NDR.de",
             "https://mcdn.ndr.de/ndr/hls/ndr_fs/ndr_nds/master.m3u8", true, ArdGroup,
-            LogoUrl: WikimediaLogo("NDR_Fernsehen_Logo.svg")),
+            LogoAsset: LogoNdr),
         new("ndr_hh", "NDR Hamburg", string.Empty,
             "https://mcdn.ndr.de/ndr/hls/ndr_fs/ndr_hh/master.m3u8", false, ArdGroup,
-            LogoUrl: WikimediaLogo("NDR_Fernsehen_Logo.svg")),
+            LogoAsset: LogoNdr),
         new("ndr_mv", "NDR Mecklenburg-Vorpommern", string.Empty,
             "https://mcdn.ndr.de/ndr/hls/ndr_fs/ndr_mv/master.m3u8", false, ArdGroup,
-            LogoUrl: WikimediaLogo("NDR_Fernsehen_Logo.svg")),
+            LogoAsset: LogoNdr),
         new("ndr_sh", "NDR Schleswig-Holstein", string.Empty,
             "https://mcdn.ndr.de/ndr/hls/ndr_fs/ndr_sh/master.m3u8", false, ArdGroup,
-            LogoUrl: WikimediaLogo("NDR_Fernsehen_Logo.svg")),
+            LogoAsset: LogoNdr),
 
         // The two smallest members of the ARD, and the only ones whose whole national feed is this window.
         new("rb", "Radio Bremen", string.Empty,
             "https://rbhlslive.akamaized.net/hls/live/2020435/rbfs/master.m3u8", false, ArdGroup,
-            LogoUrl: WikimediaLogo("Radio_Bremen_TV_Logo_2015.svg")),
+            LogoAsset: LogoRadioBremen),
         new("sr", "SR", string.Empty,
             "https://srfs.akamaized.net/hls/live/689649/srfsgeo/master.m3u8", false, ArdGroup,
-            LogoUrl: WikimediaLogo("Saarländischer_Rundfunk_Logo_2023.svg")),
+            LogoAsset: LogoSR),
         new("swr_bw", "SWR Baden-Württemberg", "SWR/SR.de",
             "https://swrbwd-hls.akamaized.net/hls/live/2018672/swrbwd/master.m3u8", true, ArdGroup, LogoId: "SWRSR.de"),
         new("swr_rp", "SWR Rheinland-Pfalz", string.Empty,
@@ -154,14 +150,14 @@ public static class ZdfChannelCatalog
 
         // Not a broadcaster but on the same platform: the two channels of the German Bundestag. The API's
         // names for these carry soft hyphens ("Parlaments­fern­sehen"), which is not what to show in a guide.
-        // Neither has artwork anywhere that could be pointed at - not on the logo host, not on Wikimedia -
-        // so they are offered without any and can be given an address of their own in the settings page.
+        // Neither has an artwork of its own anywhere - not on the logo host, not on Wikimedia - so both carry
+        // the Bundestag's own word mark, which is as close to a logo for them as anything gets.
         new("parlamentsfernsehen_1", "Parlamentsfernsehen Kanal 1", string.Empty,
             "https://bttv-live-z.r53.cdn.tv1.eu/13014bundestag-hk1/_definst_/live/video/hk1_de.smil/playlist.m3u8",
-            false, PlatformGroup, IsHd: false),
+            false, PlatformGroup, IsHd: false, LogoAsset: LogoBundestag),
         new("parlamentsfernsehen_2", "Parlamentsfernsehen Kanal 2", string.Empty,
             "https://bttv-live-z.r53.cdn.tv1.eu/13014bundestag-hk2/_definst_/live/video/hk2_de.smil/playlist.m3u8",
-            false, PlatformGroup, IsHd: false)
+            false, PlatformGroup, IsHd: false, LogoAsset: LogoBundestag)
     ];
 
     /// <summary>Keys of the channels that are on unless the user configured otherwise.</summary>
@@ -169,20 +165,32 @@ public static class ZdfChannelCatalog
         => All.Where(c => c.EnabledByDefault).Select(c => c.Key).ToArray();
 
     /// <summary>
-    /// Builds the logo URL for one channel.
+    /// Builds the logo for one channel: an address to fetch, or a file this plugin ships itself.
     /// </summary>
     /// <remarks>
     /// The German XMLTV guide this plugin's channels are matched against carries no icons at all, so
     /// artwork has to come from somewhere else; epg.best publishes a logo per guide id and is what the
-    /// default template points at. It does not carry every channel, so an entry may name its own source
-    /// (<see cref="ZdfChannelDefinition.LogoUrl"/>). Both the template and a per-channel URL can be
-    /// changed in the settings page, because a host that disappears should not cost more than one setting.
+    /// default template points at. It does not carry every channel, so an entry may name a file that comes
+    /// inside the plugin instead (<see cref="ZdfChannelDefinition.LogoAsset"/>). Both the template and a
+    /// per-channel URL can be changed in the settings page, because a host that disappears should not cost
+    /// more than one setting - and a shipped file still yields to either of them.
+    /// <para>
+    /// A channel with its own file does not fall back to the template when that file cannot be used: the
+    /// reason it has one is that the host behind the template answers 404 for it, so falling back would
+    /// trade no picture for a broken one.
+    /// </para>
     /// </remarks>
     /// <param name="definition">The channel.</param>
-    /// <param name="template">A URL containing <c>{id}</c>, or empty for the built-in default.</param>
+    /// <param name="template">A URL containing <c>{id}</c>; empty switches artwork off entirely.</param>
     /// <param name="overrideUrl">An explicit URL for this channel, winning over everything else.</param>
-    /// <returns>The URL to offer as the channel's logo, or <c>null</c> when logos are switched off.</param>
-    public static string? LogoFor(ZdfChannelDefinition definition, string template, string? overrideUrl)
+    /// <param name="bundledLogos">Resolves a shipped file name to the path it was unpacked to, or <c>null</c>
+    /// when that did not work; without it a channel naming a <c>LogoAsset</c> gets no artwork.</param>
+    /// <returns>What to offer as the channel's logo, or <c>null</c> when it should have none.</returns>
+    public static string? LogoFor(
+        ZdfChannelDefinition definition,
+        string template,
+        string? overrideUrl,
+        Func<string, string?>? bundledLogos = null)
     {
         if (!string.IsNullOrWhiteSpace(overrideUrl))
         {
@@ -196,12 +204,12 @@ public static class ZdfChannelCatalog
             return null;
         }
 
-        if (!string.IsNullOrWhiteSpace(definition.LogoUrl))
+        if (!string.IsNullOrWhiteSpace(definition.LogoAsset))
         {
-            // The host the template points at does not carry every channel; those entries name their own
-            // source instead of being handed a URL that would 404 (see VerifyLogosAsync for why that is
-            // worth avoiding: Jellyfin keeps a channel's first image and never replaces it).
-            return definition.LogoUrl.Trim();
+            // The host behind the template does not carry this channel, so its picture came along in the
+            // assembly. Deliberately no fallback to the template below: for these channels that address is
+            // known to answer 404 (see VerifyLogosAsync for why that is worth avoiding).
+            return bundledLogos?.Invoke(definition.LogoAsset);
         }
 
         if (!template.Contains("{id}", StringComparison.Ordinal))
@@ -219,6 +227,23 @@ public static class ZdfChannelCatalog
 
         return template.Replace("{id}", Uri.EscapeDataString(id), StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Says whether an offered logo still has to be fetched before it can be shown.
+    /// </summary>
+    /// <remarks>
+    /// A logo is either an address - which the server downloads when something first asks for the tile, see
+    /// <see cref="ChannelArtwork"/> for what that costs when it fails - or a file this plugin unpacked from
+    /// its own assembly (<see cref="ChannelLogoAssets"/>). The distinction is the same one the server makes
+    /// with <c>ItemImageInfo.IsLocalFile</c>, and it decides which of <c>ChannelInfo.ImagePath</c> and
+    /// <c>ChannelInfo.ImageUrl</c> a logo belongs in.
+    /// </remarks>
+    /// <param name="logo">What <see cref="LogoFor"/> handed out, or <c>null</c> for no artwork.</param>
+    /// <returns><c>true</c> when the logo is an http(s) address rather than a file on this machine.</returns>
+    public static bool IsRemote(string? logo)
+        => logo is not null
+           && (logo.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+               || logo.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Compares the embedded channel list that the settings page renders against this catalogue, and

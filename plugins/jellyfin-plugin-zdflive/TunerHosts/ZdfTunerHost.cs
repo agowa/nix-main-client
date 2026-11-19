@@ -31,14 +31,21 @@ public sealed class ZdfTunerHost : ITunerHost, IConfigurableTunerHost
     private readonly ZdfChannelRepository _repository;
     private readonly LiveTvDevices _devices;
     private readonly ChannelArtwork _artwork;
+    private readonly ChannelLogoAssets _assets;
     private readonly ILogger<ZdfTunerHost> _logger;
 
     /// <summary>Initializes a new instance of the <see cref="ZdfTunerHost"/> class.</summary>
-    public ZdfTunerHost(ZdfChannelRepository repository, LiveTvDevices devices, ChannelArtwork artwork, ILogger<ZdfTunerHost> logger)
+    public ZdfTunerHost(
+        ZdfChannelRepository repository,
+        LiveTvDevices devices,
+        ChannelArtwork artwork,
+        ChannelLogoAssets assets,
+        ILogger<ZdfTunerHost> logger)
     {
         _repository = repository;
         _devices = devices;
         _artwork = artwork;
+        _assets = assets;
         _logger = logger;
     }
 
@@ -71,19 +78,23 @@ public sealed class ZdfTunerHost : ITunerHost, IConfigurableTunerHost
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         var resolved = await _repository.GetChannelsAsync(!enableCache, cancellationToken).ConfigureAwait(false);
 
+        // Getting the shipped logos onto disk is what this needs them for, so it happens here rather than
+        // somewhere inside the catalogue: a channel's artwork has to exist before the server is told about it.
+        Func<string, string?> bundledLogo = _assets.PathFor;
+
         // Every logo the list wants, checked in one go before the loop: see VerifyLogosAsync for why an
-        // untested URL is worse than no URL at all.
+        // untested URL is worse than no URL at all - and for why a shipped file is not part of that question.
         var usableLogos = await _repository.VerifyLogosAsync(
             config.ShowChannelLogos
-                ? resolved.Select(c => ZdfChannelCatalog.LogoFor(c.Definition, config.LogoTemplate, config.LogoUrlFor(c.Definition.Key))).ToList()
+                ? resolved.Select(c => ZdfChannelCatalog.LogoFor(c.Definition, config.LogoTemplate, config.LogoUrlFor(c.Definition.Key), bundledLogo)).ToList()
                 : Array.Empty<string?>(),
             cancellationToken).ConfigureAwait(false);
 
-        // Reduces "the catalogue's URL for this channel, if it was confirmed to exist" to one call.
+        // Reduces "the catalogue's logo for this channel, if it is really there" to one call.
         string? PickLogo(ZdfChannelDefinition definition)
         {
-            var url = ZdfChannelCatalog.LogoFor(definition, config.LogoTemplate, config.LogoUrlFor(definition.Key));
-            return url is not null && usableLogos.Contains(url) ? url : null;
+            var logo = ZdfChannelCatalog.LogoFor(definition, config.LogoTemplate, config.LogoUrlFor(definition.Key), bundledLogo);
+            return logo is not null && usableLogos.Contains(logo) ? logo : null;
         }
 
         var channels = new List<ChannelInfo>(resolved.Count);
@@ -92,6 +103,11 @@ public sealed class ZdfTunerHost : ITunerHost, IConfigurableTunerHost
         foreach (var channel in resolved)
         {
             var definition = channel.Definition;
+
+            // Which of the two artwork fields this channel's logo belongs in depends on whether it still has
+            // to be fetched - see IsRemote. Computed here because an object initializer cannot say that twice.
+            var logo = PickLogo(definition);
+            var remoteLogo = ZdfChannelCatalog.IsRemote(logo);
 
             channels.Add(new ChannelInfo
             {
@@ -124,11 +140,13 @@ public sealed class ZdfTunerHost : ITunerHost, IConfigurableTunerHost
                 ChannelGroup = definition.Group,
                 IsHD = definition.IsHd,
 
-                // The channel's own logo. Jellyfin stores this as the primary image and fetches it the
-                // first time something asks for it (ImageController converts a remote image path to a
-                // local file on demand), so offering a URL is enough - and the German XMLTV guide this
-                // plugin matches against carries no icons of its own, which is why they were missing.
-                ImageUrl = PickLogo(definition)
+                // The channel's own logo, in whichever of the two fields describes it: a file this plugin
+                // ships itself goes in as a path (GuideManager.UpdateChannel prefers ImagePath and there is
+                // nothing to fetch), an address as a URL, which the server downloads the first time anything
+                // asks for the tile. The German XMLTV guide these channels are matched against carries no
+                // icons at all, which is why artwork had to come from somewhere else in the first place.
+                ImagePath = remoteLogo ? null : logo,
+                ImageUrl = remoteLogo ? logo : null,
             });
         }
 
@@ -137,7 +155,9 @@ public sealed class ZdfTunerHost : ITunerHost, IConfigurableTunerHost
         var logosByChannelId = new Dictionary<string, string?>(channels.Count, StringComparer.OrdinalIgnoreCase);
         foreach (var channel in channels)
         {
-            logosByChannelId[channel.Id] = channel.ImageUrl;
+            // Whichever field the logo ended up in: the repair compares what a channel holds against this
+            // value, and it does not care whether the answer is an address or one of our own files.
+            logosByChannelId[channel.Id] = channel.ImagePath ?? channel.ImageUrl;
         }
 
         await _artwork.RepairAsync(logosByChannelId, cancellationToken).ConfigureAwait(false);
