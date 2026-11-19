@@ -22,9 +22,9 @@ namespace Jellyfin.Plugin.ZdfLive;
 /// SWR/SR common programme). Ignored when <see cref="LogoUrl"/> is set.
 /// </param>
 /// <param name="LogoUrl">
-/// A complete logo URL for a channel the template's host does not carry (3sat and NDR have no image at
-/// epg.best). Beats the template plus id, but still yields to an explicit URL from the settings and to
-/// switching logos off there.
+/// A complete logo URL for a channel the template's host does not carry - 3sat, everything NDR makes
+/// and the two smallest ARD members among them. Beats the template plus id, but still yields to an
+/// explicit URL from the settings and to switching logos off there.
 /// </param>
 public sealed record ZdfChannelDefinition(
     string Key,
@@ -60,7 +60,7 @@ public static class ZdfChannelCatalog
     /// <param name="fileName">The Commons file name, underscores for spaces.</param>
     /// <returns>A URL that answers with a PNG.</returns>
     private static string WikimediaLogo(string fileName)
-        => "https://commons.wikimedia.org/wiki/Special:FilePath/" + fileName + "?width=512";
+        => "https://commons.wikimedia.org/wiki/Special:FilePath/" + Uri.EscapeDataString(fileName) + "?width=512";
 
     private const string ZdfGroup = "ZDF Live";
     private const string ArdGroup = "ARD Live";
@@ -107,47 +107,55 @@ public static class ZdfChannelCatalog
         new("ard_alpha", "ARD-alpha", "ARD.alpha.de",
             "https://mcdn.br.de/br/fs/ard_alpha/hls/de/master.m3u8", true, ArdGroup, LogoId: "ARDalpha.de"),
         new("one", "ONE", "ONE.de",
-            "https://mcdn-one.ard.de/ardone/hls/master.m3u8", false, ArdGroup),
+            "https://mcdn-one.ard.de/ardone/hls/master.m3u8", false, ArdGroup,
+            LogoUrl: WikimediaLogo("One_2022.svg")),
         new("wdr", "WDR", "WDR.de",
             "https://wdr-live.ard-mcdn.de/wdr/live/hls/de/master.m3u8", true, ArdGroup),
         new("mdr_sachsen", "MDR Sachsen", "MDR.de",
             "https://mdrtvsnhls.akamaized.net/hls/live/2016928/mdrtvsn/master.m3u8", true, ArdGroup),
         new("mdr_sachsen_anhalt", "MDR Sachsen-Anhalt", string.Empty,
-            "https://mdrtvsahls.akamaized.net/hls/live/2016879/mdrtvsa/master.m3u8", false, ArdGroup),
+            "https://mdrtvsahls.akamaized.net/hls/live/2016879/mdrtvsa/master.m3u8", false, ArdGroup, LogoId: "MDR.de"),
         new("mdr_thueringen", "MDR Thüringen", string.Empty,
-            "https://mdrtvthhls.akamaized.net/hls/live/2016880/mdrtvth/master.m3u8", false, ArdGroup),
+            "https://mdrtvthhls.akamaized.net/hls/live/2016880/mdrtvth/master.m3u8", false, ArdGroup, LogoId: "MDR.de"),
         new("br_nord", "BR Nord", "BR.de",
             "https://mcdn.br.de/br/fs/bfs_nord/hls/de/master.m3u8", true, ArdGroup),
         new("br_sued", "BR Süd", string.Empty,
-            "https://mcdn.br.de/br/fs/bfs_sued/hls/de/master.m3u8", false, ArdGroup),
+            "https://mcdn.br.de/br/fs/bfs_sued/hls/de/master.m3u8", false, ArdGroup, LogoId: "BR.de"),
         new("hr", "HR", "HR.de",
             "https://hr-live.ard-mcdn.de/hr/live/hls/de/master.m3u8", true, ArdGroup),
         new("rbb_berlin", "rbb Berlin", "RBB.de",
             "https://rbb-hls-berlin.akamaized.net/hls/live/2017824/rbb_berlin/index.m3u8", true, ArdGroup),
         new("rbb_brandenburg", "rbb Brandenburg", string.Empty,
-            "https://rbb-hls-brandenburg.akamaized.net/hls/live/2017825/rbb_brandenburg/index.m3u8", false, ArdGroup),
+            "https://rbb-hls-brandenburg.akamaized.net/hls/live/2017825/rbb_brandenburg/index.m3u8", false, ArdGroup, LogoId: "RBB.de"),
         new("ndr_nds", "NDR Niedersachsen", "NDR.de",
             "https://mcdn.ndr.de/ndr/hls/ndr_fs/ndr_nds/master.m3u8", true, ArdGroup,
             LogoUrl: WikimediaLogo("NDR_Fernsehen_Logo.svg")),
         new("ndr_hh", "NDR Hamburg", string.Empty,
-            "https://mcdn.ndr.de/ndr/hls/ndr_fs/ndr_hh/master.m3u8", false, ArdGroup),
+            "https://mcdn.ndr.de/ndr/hls/ndr_fs/ndr_hh/master.m3u8", false, ArdGroup,
+            LogoUrl: WikimediaLogo("NDR_Fernsehen_Logo.svg")),
         new("ndr_mv", "NDR Mecklenburg-Vorpommern", string.Empty,
-            "https://mcdn.ndr.de/ndr/hls/ndr_fs/ndr_mv/master.m3u8", false, ArdGroup),
+            "https://mcdn.ndr.de/ndr/hls/ndr_fs/ndr_mv/master.m3u8", false, ArdGroup,
+            LogoUrl: WikimediaLogo("NDR_Fernsehen_Logo.svg")),
         new("ndr_sh", "NDR Schleswig-Holstein", string.Empty,
-            "https://mcdn.ndr.de/ndr/hls/ndr_fs/ndr_sh/master.m3u8", false, ArdGroup),
+            "https://mcdn.ndr.de/ndr/hls/ndr_fs/ndr_sh/master.m3u8", false, ArdGroup,
+            LogoUrl: WikimediaLogo("NDR_Fernsehen_Logo.svg")),
 
         // The two smallest members of the ARD, and the only ones whose whole national feed is this window.
         new("rb", "Radio Bremen", string.Empty,
-            "https://rbhlslive.akamaized.net/hls/live/2020435/rbfs/master.m3u8", false, ArdGroup),
+            "https://rbhlslive.akamaized.net/hls/live/2020435/rbfs/master.m3u8", false, ArdGroup,
+            LogoUrl: WikimediaLogo("Radio_Bremen_TV_Logo_2015.svg")),
         new("sr", "SR", string.Empty,
-            "https://srfs.akamaized.net/hls/live/689649/srfsgeo/master.m3u8", false, ArdGroup),
+            "https://srfs.akamaized.net/hls/live/689649/srfsgeo/master.m3u8", false, ArdGroup,
+            LogoUrl: WikimediaLogo("Saarländischer_Rundfunk_Logo_2023.svg")),
         new("swr_bw", "SWR Baden-Württemberg", "SWR/SR.de",
             "https://swrbwd-hls.akamaized.net/hls/live/2018672/swrbwd/master.m3u8", true, ArdGroup, LogoId: "SWRSR.de"),
         new("swr_rp", "SWR Rheinland-Pfalz", string.Empty,
-            "https://swrrpd-hls.akamaized.net/hls/live/2018676/swrrpd/master.m3u8", false, ArdGroup),
+            "https://swrrpd-hls.akamaized.net/hls/live/2018676/swrrpd/master.m3u8", false, ArdGroup, LogoId: "SWRSR.de"),
 
         // Not a broadcaster but on the same platform: the two channels of the German Bundestag. The API's
         // names for these carry soft hyphens ("Parlaments­fern­sehen"), which is not what to show in a guide.
+        // Neither has artwork anywhere that could be pointed at - not on the logo host, not on Wikimedia -
+        // so they are offered without any and can be given an address of their own in the settings page.
         new("parlamentsfernsehen_1", "Parlamentsfernsehen Kanal 1", string.Empty,
             "https://bttv-live-z.r53.cdn.tv1.eu/13014bundestag-hk1/_definst_/live/video/hk1_de.smil/playlist.m3u8",
             false, PlatformGroup, IsHd: false),
