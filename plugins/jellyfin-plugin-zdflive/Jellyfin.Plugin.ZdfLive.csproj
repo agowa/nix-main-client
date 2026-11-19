@@ -32,6 +32,11 @@
     <EmbeddedResource Include="Configuration\configPage.html" />
     <EmbeddedResource Include="Configuration\configController.js" />
     <EmbeddedResource Include="Configuration\zdfCatalog.json" />
+
+    <!-- The logos of the channels no logo host carries (Assets/SOURCES.md). Embedded rather than installed
+         next to the DLL because a plugin update replaces that folder, and because the package only ships
+         dll + meta.json - see ChannelLogoAssets for why these have to end up as files on disk. -->
+    <EmbeddedResource Include="Assets\*.png" />
   </ItemGroup>
 
 </Project>
