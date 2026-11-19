@@ -142,9 +142,11 @@ file from Nix would delete any other tuner or EPG. Both steps survive a rebuild,
      hard you tried to select one. Pick yours; a source already added is not offered again. This path also
      stores the name and device id the plugin reports, which is why it shows up as "Twitch Live TV".
    * or pick **Twitch Live TV** in the dropdown and continue - nothing needs detecting here, so pressing
-     Detect first only adds a step. The form then saves the source without a name, and the tuner list
-     labels it "Unknown" instead of "Twitch Live TV": looks wrong, costs nothing, because everything that has
-     to work (including which plugin's channels appear) keys on the type string rather than the label.
+     Detect first only adds a step. That form posts no name unless the field is filled in, which used to
+     leave the row titled "Unknown": the web client titles a device by its friendly name and otherwise
+     falls back to a label taken from a switch over the four tuner types shipped with the server, so any
+     other type reads as "Unknown" whatever it is. The plugin now names its own devices on the next
+     channel list, so both paths end up reading "Twitch Live TV".
 
    Either way the URL field is ignored; channels come from the plugin configuration. Required at all
    because Jellyfin only offers Live TV once ≥1 tuner source exists.

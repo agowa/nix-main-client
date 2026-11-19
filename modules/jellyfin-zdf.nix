@@ -27,9 +27,10 @@
 #      "ZDF Live TV", or select it in the dropdown and continue - the two are alternatives. Detection
 #      asks every installed tuner type at once (LiveTv/Tuners/Discover ignores the dropdown), so with
 #      both plugins installed it offers both rows whatever was selected; picking from the dropdown
-#      needs no detection at all, but saves the source unnamed ("Unknown" in the list). Both work:
-#      what decides which plugin's channels appear is the type string, not the label. The URL field is
-#      irrelevant either way.
+#      needs no detection at all and leaves the source unnamed; the plugin then gives its own device a
+#      name, because an unnamed one is titled "Unknown" by the web client whatever it actually is. Both
+#      work: what decides which plugin's channels appear is the type string, not the label. The URL
+#      field is irrelevant either way.
 #   2. Same page -> add programme guide -> XMLTV, path
 #      https://epgshare01.online/epgshare01/epg_ripper_DE1.xml.gz (German guide, gzipped - Jellyfin
 #      unpacks .gz URLs itself). Channels are matched by their guide id automatically, so no manual

@@ -41,9 +41,11 @@ that file from Nix would delete any other tuner or EPG. Both steps survive a reb
      hard you tried to select one. Pick yours; a source already added is not offered again. This path also
      stores the name and device id the plugin reports, which is why it shows up as "ZDF Live TV".
    * or pick **ZDF Live TV** in the dropdown and continue - nothing needs detecting here, so pressing
-     Detect first only adds a step. The form then saves the source without a name, and the tuner list
-     labels it "Unknown" instead of "ZDF Live TV": looks wrong, costs nothing, because everything that has
-     to work (including which plugin's channels appear) keys on the type string rather than the label.
+     Detect first only adds a step. That form posts no name unless the field is filled in, which used to
+     leave the row titled "Unknown": the web client titles a device by its friendly name and otherwise
+     falls back to a label taken from a switch over the four tuner types shipped with the server, so any
+     other type reads as "Unknown" whatever it is. The plugin now names its own devices on the next
+     channel list, so both paths end up reading "ZDF Live TV".
 
    Either way the URL field is ignored - channel URLs come from the plugin, it only has to look like a URL
    for the form's validation. This step is required at all because Jellyfin only offers Live TV once ≥1
@@ -78,8 +80,9 @@ takes effect by itself - no restart, no rebuild and nothing to press elsewhere: 
 rebuild that adding a tuner device queues (`GuideRefresh.cs`), which matters more here than it sounds because
 this plugin ships no programme guide at all, so "run the guide task" was advice about somebody else's feature.
 Channels that are configured but currently
-unresolvable stay in the list, or saving would quietly delete them; channels only the API knows about can be
-ticked too (they simply have no guide id, so programme data matches by name). Logos, the logo host and a
+unresolvable stay in the list, or saving would quietly delete them; should the API start carrying a channel this
+catalogue does not name, it can be ticked as well - with no guide id and no artwork until it is added to
+`ZdfChannelCatalog.cs`. Logos, the logo host and a
 per-channel logo URL are on the same page.
 
 Everything is also a NixOS option in `modules/jellyfin-zdf.nix`, for when this configuration really is the source
@@ -115,15 +118,24 @@ picture anywhere. `ChannelInfo.ImageUrl` is set from a logo host instead - by de
 `https://static.epg.best/de/{id}.png`, with the id being the guide id except where that host spells it
 differently (`ARD.de` for Das Erste, `SWRSR.de` for the SWR/SR programme, `Phoenix.de`).
 
-Measured against that host with all 17 catalogue channels: fifteen answer `200`; **3sat and NDR are 404** under
-every spelling tried. Those two therefore carry their own URL in the catalogue - Wikimedia Commons, which has
-the same logos the German Wikipedia articles use, asked for through `Special:FilePath/<file>.svg?width=512` so
-it hands back a rendered PNG and survives a re-upload of the file. A per-channel URL beats the template but not
-the switch: `ShowChannelLogos` off or an empty template still means no artwork at all, and the settings page can
-point either channel somewhere else.
+Measured against that host: it carries thirteen of the thirty channels under their own id and none of the ARD
+state windows, so those are looked up under their parent broadcaster (`BR.de` for BR Süd, `MDR.de` for both extra
+MDR windows, `RBB.de` for rbb Brandenburg, `SWRSR.de` for SWR Rheinland-Pfalz) - that host keeps one image per ARD
+member. **3sat, everything NDR makes, ONE, Radio Bremen and SR are 404** there under every spelling tried; those
+carry their own URL in the catalogue instead - Wikimedia Commons, which has the same logos the German Wikipedia
+articles use, asked for through `Special:FilePath/<file>.svg?width=512` so it hands back a rendered PNG and
+survives a re-upload of the file. The two parliamentary channels have artwork nowhere that could be pointed at, so
+they are offered without one. A per-channel URL beats the template but not the switch: `ShowChannelLogos` off or an
+empty template still means no artwork at all, and the settings page can point any channel somewhere else.
 
 Every URL is HEAD-checked before it is handed out, because Jellyfin stores a channel's image only while the item
-has none - an address that turns out not to exist would stay on that channel permanently.
+has none (`GuideManager.UpdateChannel` tests `!item.HasImage(Primary)`) - an address that turns out not to exist
+would stay on that channel permanently. The same rule works against a later fix, though: what is stored is never
+replaced either, so 3sat and NDR went on showing a broken tile long after being moved to working addresses, and a
+client shows that broken picture rather than falling back to the letter tile it uses when an item has no image at
+all. `ChannelArtwork.cs` covers it: it compares what each channel holds against what is offered now and steps in
+only when what it holds cannot be loaded - a URL answering 403/404/410, or a file that has gone - which leaves
+healthy artwork alone, including the copy Jellyfin makes into the channel's own metadata folder on first view.
 
 One limit worth stating because it is often assumed otherwise: a tuner host can hand over exactly **one** image
 per channel (`ChannelInfo` has only `ImagePath`, `ImageUrl`, `HasImage`) - there is no banner field in the
@@ -152,6 +164,13 @@ Added since, on a running server (2026-11-18):
   Two saves produced two runs, so the hook does not feed itself
 * `/Items/{id}/Images/Primary` now returns real artwork for the two channels epg.best lacks: 3sat 26523 B and
   NDR 19438 B, byte-for-byte what Wikimedia Commons serves for those files
+* a channel holding an image that cannot be loaded has it replaced on the next refresh: pointed at a file that
+  was not there, *3sat* logged `was still pointing at ..., which is not there; it now uses ...` and its stored
+  path became the logo offered then - and stayed that way, because nothing else writes it again
+* all thirty channels of the stream API are offered once ticked (seventeen named before, thirteen catalogued
+  now); every one of them ends up with artwork except the two parliamentary channels, which have none anywhere
+* a source added without a name gets one: after deleting both `<FriendlyName>` elements from `livetv.xml`, the
+  next refresh logged `ZDF Live TV: named the 'zdf' tuner device ZDF Live TV` and the file held them again
 
 ZDF/ZDFneo/ZDFinfo/3sat/phoenix playback could **not** be tested from the network available here, because
 that egress is not in Germany - see the geo section. Everything up to and including handing the URL to the
