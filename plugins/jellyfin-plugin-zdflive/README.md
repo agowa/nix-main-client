@@ -154,6 +154,12 @@ a file that has gone), and since the shipped files also replaces an address for 
 itself, without waiting for it to break. Artwork the plugin never offered is left alone, including the copy
 Jellyfin makes into the channel's own metadata folder on first view.
 
+All of that runs off the channel list, and the server only builds one when its guide task runs - whose sole default
+trigger is an interval of 24 hours measured from the last run, with none at startup. So `Plugin` asks this plugin's
+own tuner host for one cached channel list shortly after boot (`ChannelArtwork.QueueAfterStart`); without it, an
+update that changes artwork would sit unapplied until the guide happened to refresh or someone opened the tuner
+page. Measured: corrected 13 s after `Startup complete`, with no manual trigger.
+
 One limit worth stating because it is often assumed otherwise: a tuner host can hand over exactly **one** image
 per channel (`ChannelInfo` has only `ImagePath`, `ImageUrl`, `HasImage`) - there is no banner field in the
 contract. Wider artwork belongs to programmes (`ProgramInfo.ImageUrl/ThumbImageUrl/BackdropImageUrl`), which for
