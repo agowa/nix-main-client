@@ -26,8 +26,9 @@ namespace Jellyfin.Plugin.ZdfLive;
 /// picture rather than the letter tile it would have used with no image at all.
 /// <para>
 /// So this class does the one thing the server will not, and only that - it compares what a channel is
-/// holding against what this plugin offers now, and steps in when what it holds is <em>missing</em>:
-/// a URL that answers 403/404/410, or a file that is gone. Anything else is left alone, including
+/// holding against what this plugin offers now, and steps in when what it holds is <em>missing</em> (a URL
+/// answering 403/404/410, or a file that is gone) or when it is an address for artwork the plugin has since
+/// started shipping itself. Anything else is left alone, including
 /// artwork from an older source that still loads (Jellyfin downloads a remote logo into its own metadata
 /// folder the first time it is served, so "different from what we offer" is normal and not a defect) and
 /// anything an operator set by hand. A channel with no image at all is left to <c>GuideManager</c>, which
@@ -140,7 +141,23 @@ public sealed class ChannelArtwork
                 continue;
             }
 
-            if (!await IsMissingAsync(path!, cancellationToken).ConfigureAwait(false))
+            // Second trigger, the one that has to act before anything is broken: this plugin used to hand out
+            // addresses for channels it now carries a file for. Such an address may load perfectly well today,
+            // but every display of it is a request to somebody else's server, and the first failure costs both
+            // the tile and the stored reference (see IsMissingAsync) - which is exactly how 3sat and ONE ended
+            // up showing nothing usable. A file in our own folder cannot fail that way, so move onto it; a
+            // file of ours under a different name is an older version of itself for the same reason. What is
+            // left alone is artwork this plugin never offered: a poster Jellyfin downloaded into the channel's
+            // metadata folder, or something an operator set by hand.
+            var migrating = wanted is not null
+                            && !ZdfChannelCatalog.IsRemote(wanted)
+                            && (ZdfChannelCatalog.IsRemote(path)
+                                || string.Equals(
+                                    Path.GetDirectoryName(path),
+                                    Path.GetDirectoryName(wanted),
+                                    StringComparison.OrdinalIgnoreCase));
+
+            if (!migrating && !await IsMissingAsync(path!, cancellationToken).ConfigureAwait(false))
             {
                 continue;
             }
@@ -158,11 +175,23 @@ public sealed class ChannelArtwork
             await item.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, cancellationToken).ConfigureAwait(false);
 
             repaired++;
-            _logger.LogInformation(
-                "ZDF Live TV: '{Channel}' was still pointing at {Old}, which is not there; it now uses {New}",
-                item.Name,
-                path,
-                string.IsNullOrWhiteSpace(wanted) ? "no picture of its own" : wanted!);
+
+            if (migrating)
+            {
+                _logger.LogInformation(
+                    "ZDF Live TV: '{Channel}' was still pointing at {Old}; this plugin carries that picture itself now, so it uses {New}",
+                    item.Name,
+                    path,
+                    wanted!);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "ZDF Live TV: '{Channel}' was still pointing at {Old}, which is not there; it now uses {New}",
+                    item.Name,
+                    path,
+                    string.IsNullOrWhiteSpace(wanted) ? "no picture of its own" : wanted!);
+            }
         }
 
         if (repaired > 0)
