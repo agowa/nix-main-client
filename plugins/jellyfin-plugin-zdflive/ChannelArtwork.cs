@@ -5,10 +5,13 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
+using MediaBrowser.Common;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.LiveTv;
 using MediaBrowser.Model.Entities;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.ZdfLive;
@@ -40,6 +43,9 @@ public sealed class ChannelArtwork
     /// <summary>How long a pass that found nothing to say about the current offering stays valid.</summary>
     private static readonly TimeSpan Throttle = TimeSpan.FromMinutes(15);
 
+    /// <summary>How long to wait after startup before asking for the channel list (see <see cref="QueueAfterStart"/>).</summary>
+    private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(20);
+
     private readonly ILibraryManager _libraryManager;
     private readonly ZdfChannelRepository _repository;
     private readonly ILogger<ChannelArtwork> _logger;
@@ -56,6 +62,52 @@ public sealed class ChannelArtwork
         _libraryManager = libraryManager;
         _repository = repository;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Asks for one channel list shortly after startup, so a correction this code makes runs without waiting.
+    /// </summary>
+    /// <remarks>
+    /// Everything in here needs the channel list, and the server only produces one when its guide task runs -
+    /// whose only default trigger is an interval of 24 hours measured from the last run, with no trigger at
+    /// startup (<c>RefreshGuideScheduledTask.GetDefaultTriggers()</c>). So after a plugin update that changes
+    /// artwork, an operator could reasonably restart the server and still look at yesterday's broken tile for
+    /// most of a day. Asking for our own tuner host's channel list is enough: it runs the logo checks and this
+    /// class over the channels already in the library, without touching the guide or the channel list itself -
+    /// unlike <see cref="GuideRefresh"/>, which is what a settings change needs and which would pull the whole
+    /// XMLTV file down on every restart.
+    /// </remarks>
+    /// <param name="applicationHost">Used to reach this plugin's tuner host once the container is built.</param>
+    /// <param name="logger">Where to say what happened, if anything goes wrong.</param>
+    public static void QueueAfterStart(IApplicationHost applicationHost, ILogger logger)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                // Not immediately: the plugin is constructed while the server is still starting up, and its
+                // services - including this plugin's tuner host - are only reachable once the container is built.
+                await Task.Delay(StartupDelay).ConfigureAwait(false);
+
+                var tuner = applicationHost.ServiceProvider?.GetServices<ITunerHost>()
+                    .FirstOrDefault(h => string.Equals(h.Type, ZdfChannelCatalog.HostId, StringComparison.OrdinalIgnoreCase));
+
+                if (tuner is null)
+                {
+                    // Only reachable if the plugin's own services were never registered, i.e. Live TV is off.
+                    logger.LogDebug("ZDF Live TV: no tuner host to ask for a channel list after startup");
+                    return;
+                }
+
+                // Cached stream URLs are fine here - what this pass is for is the artwork, and that comes from
+                // the catalogue. With no device configured the call returns an empty list and nothing happens.
+                await tuner.GetChannels(enableCache: true, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "ZDF Live TV: could not check the channels' artwork after startup; it will be checked with the next guide refresh");
+            }
+        });
     }
 
     /// <summary>

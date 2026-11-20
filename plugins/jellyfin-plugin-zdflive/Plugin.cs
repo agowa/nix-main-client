@@ -33,6 +33,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         // and only that: loading a configuration file writes it without the event, so this cannot fire at
         // startup. See GuideRefresh for why saving has to chase a guide refresh at all.
         ConfigurationChanged += (_, _) => GuideRefresh.Queue(applicationHost, _logger);
+
+        // Artwork this plugin has to correct on an existing install (see ChannelArtwork.QueueAfterStart): a
+        // configuration change queues a guide refresh and so fixes it too, but an update changes no settings
+        // and the guide task's only trigger is a 24 h interval, which would leave the old artwork in place
+        // until someone happened to open the tuner page.
+        ChannelArtwork.QueueAfterStart(applicationHost, _logger);
     }
 
     /// <inheritdoc />
