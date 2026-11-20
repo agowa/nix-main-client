@@ -211,10 +211,13 @@ encoder was verified; only the CDN's regional answer is untested until PC-001 tr
 ## Building / developing
 
 ```sh
-nix build .#jellyfin-plugin-zdflive          # dll + meta.json in lib/jellyfin/plugins/ZdfLive
+nix build .#jellyfin-plugin-zdf-live         # dll + meta.json in lib/jellyfin/plugins/ZdfLive
 nix develop .#plugin-dev                     # dotnet SDK 9 for iterating on the C#
 dotnet build Jellyfin.Plugin.ZdfLive.csproj -c Release
 ```
+
+The result stays two files: the bundled logos are embedded in the dll (`Assets\*.png`), so nothing about
+installing or updating the plugin changes when artwork is added.
 
 Targets `net9.0` and pins `Jellyfin.{Common,Controller,Model}` to **10.11.11**, exactly the server version
 in the pinned nixpkgs; `ExcludeAssets=runtime` keeps those assemblies out of the output so the plugin uses
