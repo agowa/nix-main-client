@@ -123,21 +123,36 @@ differently (`ARD.de` for Das Erste, `SWRSR.de` for the SWR/SR programme, `Phoen
 Measured against that host: it carries thirteen of the thirty channels under their own id and none of the ARD
 state windows, so those are looked up under their parent broadcaster (`BR.de` for BR Süd, `MDR.de` for both extra
 MDR windows, `RBB.de` for rbb Brandenburg, `SWRSR.de` for SWR Rheinland-Pfalz) - that host keeps one image per ARD
-member. **3sat, everything NDR makes, ONE, Radio Bremen and SR are 404** there under every spelling tried; those
-carry their own URL in the catalogue instead - Wikimedia Commons, which has the same logos the German Wikipedia
-articles use, asked for through `Special:FilePath/<file>.svg?width=512` so it hands back a rendered PNG and
-survives a re-upload of the file. The two parliamentary channels have artwork nowhere that could be pointed at, so
-they are offered without one. A per-channel URL beats the template but not the switch: `ShowChannelLogos` off or an
-empty template still means no artwork at all, and the settings page can point any channel somewhere else.
+member. **3sat, everything NDR makes, ONE, Radio Bremen and SR are 404** there under every spelling tried, and the
+two parliamentary channels have nothing to point at anywhere - so those ten channels carry their logo inside the
+plugin instead (six files): `Assets/*.png`, embedded in the assembly by the csproj and unpacked once into
+`<dataDir>/data/ZdfLive/logos` by `ChannelLogoAssets`, which is what `ChannelInfo.ImagePath` then points at.
+`Assets/SOURCES.md` lists each source and its licence - all six are Public domain word marks rendered from
+Wikimedia Commons SVGs at 256 px, 40 kB together.
 
-Every URL is HEAD-checked before it is handed out, because Jellyfin stores a channel's image only while the item
-has none (`GuideManager.UpdateChannel` tests `!item.HasImage(Primary)`) - an address that turns out not to exist
-would stay on that channel permanently. The same rule works against a later fix, though: what is stored is never
-replaced either, so 3sat and NDR went on showing a broken tile long after being moved to working addresses, and a
-client shows that broken picture rather than falling back to the letter tile it uses when an item has no image at
-all. `ChannelArtwork.cs` covers it: it compares what each channel holds against what is offered now and steps in
-only when what it holds cannot be loaded - a URL answering 403/404/410, or a file that has gone - which leaves
-healthy artwork alone, including the copy Jellyfin makes into the channel's own metadata folder on first view.
+That is not tidiness but the failure mode: a channel's remote logo is fetched only when something asks for the tile
+the first time (`ImageController` → `LibraryManager.ConvertImageToLocal(..., removeOnFailure: true)`), and one
+failed fetch answers that request with an error *and* deletes the stored image reference. The tile then shows
+nothing usable until artwork gets written again - which for a channel means waiting for
+`GuideManager.UpdateChannel`, and that only writes to a channel holding no image at all. A file already on disk
+cannot fail that way: serving one measured 15-30 ms against the ~1.3 s of the first Wikimedia fetch, with no
+outbound request either.
+
+Precedence is per-channel URL from the settings page, then no artwork at all (`ShowChannelLogos` off or an empty
+template), then the shipped file, then the template plus id. A channel with a shipped file does not fall back to
+the template: for those entries that address is known to 404, so falling back would trade no picture for a broken
+one.
+
+Every address is HEAD-checked before it is handed out (`File.Exists` for a shipped file), because Jellyfin stores a
+channel's image only while the item has none (`GuideManager.UpdateChannel` tests `!item.HasImage(Primary)`) - an
+address that turns out not to exist would stay on that channel permanently. The same rule works against a later fix
+though: what is stored is never replaced either, so 3sat and NDR went on showing a broken tile long after being
+moved to working addresses, and a client shows that broken picture rather than falling back to the letter tile it
+uses when an item has no image at all. `ChannelArtwork.cs` covers both ends of it - it compares what each channel
+holds against what is offered now and steps in when what it holds cannot be loaded (a URL answering 403/404/410, or
+a file that has gone), and since the shipped files also replaces an address for artwork this plugin now carries
+itself, without waiting for it to break. Artwork the plugin never offered is left alone, including the copy
+Jellyfin makes into the channel's own metadata folder on first view.
 
 One limit worth stating because it is often assumed otherwise: a tuner host can hand over exactly **one** image
 per channel (`ChannelInfo` has only `ImagePath`, `ImageUrl`, `HasImage`) - there is no banner field in the
@@ -173,6 +188,21 @@ Added since, on a running server (2026-11-18):
   now); every one of them ends up with artwork except the two parliamentary channels, which have none anywhere
 * a source added without a name gets one: after deleting both `<FriendlyName>` elements from `livetv.xml`, the
   next refresh logged `ZDF Live TV: named the 'zdf' tuner device ZDF Live TV` and the file held them again
+
+Added since, on a running server (2026-11-19):
+
+* artwork that ships with the plugin is served from disk: after a guide refresh *3sat*, *ONE*, the four NDR feeds,
+  *Radio Bremen*, *SR* and both parliamentary channels hold a path under `<dataDir>/data/ZdfLive/logos/`, and
+  `/Items/{id}/Images/Primary` answers `200 image/png` from it in 15-30 ms (the first Wikimedia fetch had taken
+  1.3 s, and any failed fetch used to leave a broken tile behind - see the artwork section)
+* both parliamentary channels have a picture now; they share the Bundestag's own word mark, which is the only
+  artwork either of them has anywhere
+* an install that already held remote logo addresses is moved onto the shipped files without anything breaking
+  first: one pass logged `'NDR Niedersachsen' was still pointing at https://commons.wikimedia.org/...; this plugin
+  carries that picture itself now, so it uses ...` for six channels and rewrote their stored paths
+* a device added the way the dropdown adds one - `POST /LiveTv/TunerHosts` with `"FriendlyName": null` - is
+  returned *and* written to `livetv.xml` as `"ZDF Live TV"` in that same request, so the tuner list never shows
+  "Unknown" for it; a name typed by an operator (`"Mein Sender"`) is kept as given
 
 ZDF/ZDFneo/ZDFinfo/3sat/phoenix playback could **not** be tested from the network available here, because
 that egress is not in Germany - see the geo section. Everything up to and including handing the URL to the
