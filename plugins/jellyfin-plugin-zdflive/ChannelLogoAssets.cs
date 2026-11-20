@@ -45,8 +45,11 @@ public sealed class ChannelLogoAssets
     private readonly ILogger<ChannelLogoAssets> _logger;
     private readonly object _gate = new();
 
-    /// <summary>Names the catalogue asked for that this assembly does not contain, so it is said once.</summary>
-    private readonly HashSet<string> _missing = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>File names this assembly actually contains, so a typo can be told from a failed write.</summary>
+    private readonly HashSet<string> _embedded = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Names already complained about, so one mistake is said once rather than per channel list.</summary>
+    private readonly HashSet<string> _reported = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>File name to absolute path once unpacked; empty when unpacking is not possible at all.</summary>
     private Dictionary<string, string>? _unpacked;
@@ -85,16 +88,31 @@ public sealed class ChannelLogoAssets
 
         if (unpacked.TryGetValue(fileName, out var path))
         {
-            return path;
+            if (File.Exists(path))
+            {
+                return path;
+            }
+
+            // The folder is inside the server's data directory, so anything that cleans that up takes these
+            // files with it while the process is running. Forgetting what was unpacked makes the next call
+            // write them again rather than hand out a path that is not there - which the server would then
+            // store on a channel and show as a broken tile.
+            lock (_gate)
+            {
+                _unpacked = null;
+            }
+
+            return EnsureUnpacked().TryGetValue(fileName, out var written) && File.Exists(written) ? written : null;
         }
 
-        // Reaching this means the catalogue names a logo that is not embedded - a typo in
-        // ZdfChannelCatalog, or an Assets/ file that did not make it into the build. The channel keeps its
-        // row and simply has no picture, so say where to look; once per name, because this is asked for on
-        // every channel list.
+        // Nothing usable for that name. Two different mistakes lead here and they need different answers, so
+        // only the one Unpack() cannot report itself is said here: a name this assembly does not contain is a
+        // typo in ZdfChannelCatalog or an Assets/ file that did not make it into the build, and the channel
+        // would sit without a picture forever with nothing to point at. A name that IS embedded means the
+        // write failed, which Unpack() has already said along with why.
         lock (_gate)
         {
-            if (_missing.Add(fileName))
+            if (!_embedded.Contains(fileName) && _reported.Add(fileName))
             {
                 _logger.LogWarning("ZDF Live TV: the catalogue asks for the logo '{File}', which this build does not contain", fileName);
             }
@@ -132,54 +150,76 @@ public sealed class ChannelLogoAssets
 
     private Dictionary<string, string> Unpack()
     {
+        var assembly = typeof(ChannelLogoAssets).Assembly;
         var paths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-        Directory.CreateDirectory(Folder);
+        // The build turns Assets/logo_one.png into <namespace>.Assets.logo_one.png, so everything after that
+        // marker is the file name - which keeps working whatever prefix the SDK decides to give it. Collected
+        // up front and remembered either way, because PathFor needs to know what this assembly holds before it
+        // can tell a typo in the catalogue apart from a directory it could not write.
+        var resources = new List<KeyValuePair<string, string>>();
 
-        foreach (var resourceName in typeof(ChannelLogoAssets).Assembly.GetManifestResourceNames())
+        foreach (var resourceName in assembly.GetManifestResourceNames())
         {
-            // The build turns Assets/logo_one.png into <namespace>.Assets.logo_one.png, so everything after
-            // that marker is the file name - which keeps working whatever prefix the SDK decides to give it.
-            if (!resourceName.EndsWith(Extension, StringComparison.OrdinalIgnoreCase)
-                || resourceName.IndexOf(AssetMarker, StringComparison.Ordinal) < 0)
+            if (!resourceName.EndsWith(Extension, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            var fileName = resourceName[(resourceName.LastIndexOf(AssetMarker, StringComparison.Ordinal) + AssetMarker.Length)..];
-            var target = Path.Combine(Folder, fileName);
-
-            using (var resource = typeof(ChannelLogoAssets).Assembly.GetManifestResourceStream(resourceName))
+            var marker = resourceName.LastIndexOf(AssetMarker, StringComparison.Ordinal);
+            if (marker < 0)
             {
+                continue;
+            }
+
+            var fileName = resourceName[(marker + AssetMarker.Length)..];
+            resources.Add(new KeyValuePair<string, string>(fileName, resourceName));
+            _embedded.Add(fileName);
+        }
+
+        Directory.CreateDirectory(Folder);
+
+        foreach (var pair in resources)
+        {
+            var target = Path.Combine(Folder, pair.Key);
+
+            try
+            {
+                using var resource = assembly.GetManifestResourceStream(pair.Value);
                 if (resource is null)
                 {
                     continue;
                 }
 
-                // Same size means the same logo: an update that does not change the artwork should not have
-                // to rewrite it, and a channel already pointing at this path keeps working either way.
-                if (File.Exists(target) && new FileInfo(target).Length == resource.Length)
+                // Same size means the same logo: an update that does not change the artwork should not have to
+                // rewrite it, and a channel already pointing at this path keeps working either way.
+                if (!File.Exists(target) || new FileInfo(target).Length != resource.Length)
                 {
-                    paths[fileName] = target;
-                    continue;
+                    // Through a temporary name, so a crash mid-write cannot leave half a PNG where the server
+                    // is about to look for it.
+                    var temporary = target + ".tmp";
+                    using (var output = File.Create(temporary))
+                    {
+                        resource.CopyTo(output);
+                    }
+
+                    File.Move(temporary, target, true);
                 }
 
-                // Through a temporary name, so a crash mid-write cannot leave half a PNG where the server is
-                // about to look for it.
-                var temporary = target + ".tmp";
-                using (var output = File.Create(temporary))
-                {
-                    resource.CopyTo(output);
-                }
-
-                File.Move(temporary, target, true);
-                paths[fileName] = target;
+                paths[pair.Key] = target;
+            }
+            catch (Exception ex)
+            {
+                // One logo that will not write must not cost the others - and no channel is lost over it, it
+                // just has no picture until this works out.
+                _logger.LogWarning(ex, "ZDF Live TV: could not unpack the bundled logo {File} into {Folder}", pair.Key, Folder);
             }
         }
 
         _logger.LogDebug(
-            "ZDF Live TV: {Count} bundled channel logo(s) in {Folder}",
+            "ZDF Live TV: {Count} of {Total} bundled channel logo(s) available in {Folder}",
             paths.Count,
+            resources.Count,
             Folder);
 
         return paths;
