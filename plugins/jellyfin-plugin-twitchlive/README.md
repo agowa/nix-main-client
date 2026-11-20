@@ -145,8 +145,10 @@ file from Nix would delete any other tuner or EPG. Both steps survive a rebuild,
      Detect first only adds a step. That form posts no name unless the field is filled in, which used to
      leave the row titled "Unknown": the web client titles a device by its friendly name and otherwise
      falls back to a label taken from a switch over the four tuner types shipped with the server, so any
-     other type reads as "Unknown" whatever it is. The plugin now names its own devices on the next
-     channel list, so both paths end up reading "Twitch Live TV".
+     other type reads as "Unknown" whatever it is. The plugin names the device while the server is still
+     saving it - `Validate()` is handed the very entry that then goes into `livetv.xml` - so both paths read
+     "Twitch Live TV" as soon as the page redraws. A row an older version left unnamed is named on the next
+     channel list.
 
    Either way the URL field is ignored; channels come from the plugin configuration. Required at all
    because Jellyfin only offers Live TV once ≥1 tuner source exists.

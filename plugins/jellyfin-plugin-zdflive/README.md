@@ -44,8 +44,10 @@ that file from Nix would delete any other tuner or EPG. Both steps survive a reb
      Detect first only adds a step. That form posts no name unless the field is filled in, which used to
      leave the row titled "Unknown": the web client titles a device by its friendly name and otherwise
      falls back to a label taken from a switch over the four tuner types shipped with the server, so any
-     other type reads as "Unknown" whatever it is. The plugin now names its own devices on the next
-     channel list, so both paths end up reading "ZDF Live TV".
+     other type reads as "Unknown" whatever it is. The plugin names the device while the server is still
+     saving it - `Validate()` is handed the very entry that then goes into `livetv.xml` - so both paths read
+     "ZDF Live TV" as soon as the page redraws. A row an older version left unnamed is named on the next
+     channel list.
 
    Either way the URL field is ignored - channel URLs come from the plugin, it only has to look like a URL
    for the form's validation. This step is required at all because Jellyfin only offers Live TV once ≥1
