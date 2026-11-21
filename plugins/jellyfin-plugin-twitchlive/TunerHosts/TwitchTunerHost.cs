@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -32,13 +33,19 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
 
     private readonly TwitchChannelRepository _repository;
     private readonly LiveTvDevices _devices;
+    private readonly AvatarAssets _avatars;
     private readonly ILogger<TwitchTunerHost> _logger;
 
     /// <summary>Initializes a new instance of the <see cref="TwitchTunerHost"/> class.</summary>
-    public TwitchTunerHost(TwitchChannelRepository repository, LiveTvDevices devices, ILogger<TwitchTunerHost> logger)
+    public TwitchTunerHost(
+        TwitchChannelRepository repository,
+        LiveTvDevices devices,
+        AvatarAssets avatars,
+        ILogger<TwitchTunerHost> logger)
     {
         _repository = repository;
         _devices = devices;
+        _avatars = avatars;
         _logger = logger;
     }
 
@@ -81,16 +88,47 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         var channels = await _repository.GetChannelsAsync(!enableCache, cancellationToken).ConfigureAwait(false);
 
-        var result = new List<ChannelInfo>(channels.Count);
+        // Decided up front rather than inside the loop, because what is offered also decides which streamer
+        // pictures are worth fetching at all - an offline channel that is being left out does not need one.
+        var offered = config.IncludeOfflineChannels
+            ? channels
+            : channels.Where(c => c.Status.IsLive).ToList();
+
+        // Getting our own copy of every offered picture onto disk happens here rather than somewhere inside the
+        // repository: a channel's artwork has to exist before the server is told about it, because what it stores
+        // from then on is this path. Anything still missing when the batch's share of the time is used up keeps
+        // downloading in the background and is offered by address meanwhile - see AvatarAssets.
+        var avatarsByLogin = new Dictionary<string, string?>(offered.Count, StringComparer.OrdinalIgnoreCase);
+
+        if (config.ShowChannelLogos)
+        {
+            foreach (var channel in offered)
+            {
+                avatarsByLogin[channel.Login] = channel.Status.ProfileImageUrl;
+            }
+        }
+
+        await _avatars.FetchAsync(avatarsByLogin, cancellationToken).ConfigureAwait(false);
+
+        var result = new List<ChannelInfo>(offered.Count);
         var number = 1;
 
-        foreach (var channel in channels)
+        foreach (var channel in offered)
         {
             var isLive = channel.Status.IsLive;
-            if (!isLive && !config.IncludeOfflineChannels)
-            {
-                continue;
-            }
+
+            // Whichever of the two this plugin can offer: its own file if it has one, Twitch's address until it
+            // does. The file is preferred because nothing has to be fetched to show it - and because a picture
+            // this plugin holds itself is replaced in place when the streamer changes it, without any channel
+            // having to be rewritten.
+            var picture = config.ShowChannelLogos
+                ? _avatars.PathFor(channel.Login) ?? channel.Status.ProfileImageUrl
+                : null;
+
+            // Which of the two artwork fields a logo belongs in depends on whether it still has to be fetched -
+            // GuideManager.UpdateChannel prefers ImagePath, and an address is downloaded by the server the first
+            // time anything asks for the tile. Computed here because an object initializer cannot say that twice.
+            var remotePicture = picture is not null && AvatarAssets.IsRemoteAddress(picture);
 
             result.Add(new ChannelInfo
             {
@@ -130,11 +168,12 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
 
                 Tags = BuildTags(isLive, channel.FromFollows),
 
-                // The account's own picture, which arrived with the live/offline answer - so a logo
-                // costs no extra request. Jellyfin stores this as the channel's primary image and
-                // downloads it the first time something asks for it (ImageController converts a remote
-                // image path to local on demand), which is why a URL is enough here.
-                ImageUrl = config.ShowChannelLogos ? channel.Status.ProfileImageUrl : null
+                // The account's own picture, which arrived with the live/offline answer - so offering it costs
+                // no extra API request. In whichever of the two fields describes it: a file this plugin fetched
+                // itself as a path (nothing left to download), an address as a URL, which the server downloads the
+                // first time something asks for the tile and then keeps whether or not it still resolves.
+                ImagePath = remotePicture ? null : picture,
+                ImageUrl = remotePicture ? picture : null
             });
         }
 
