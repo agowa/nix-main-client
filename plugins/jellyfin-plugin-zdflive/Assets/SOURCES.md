@@ -17,12 +17,20 @@ does not carry are bundled here; everything else keeps using the template so the
 | `logo_one.png` | `thumb.php?f=One_2022.svg&w=256` | [Commons:File:One 2022.svg](https://commons.wikimedia.org/wiki/File:One_2022.svg) |
 | `logo_radio_bremen.png` | `thumb.php?f=Radio_Bremen_TV_Logo_2015.svg&w=256` | [Commons:File:Radio Bremen TV Logo 2015.svg](https://commons.wikimedia.org/wiki/File:Radio_Bremen_TV_Logo_2015.svg) |
 | `logo_sr.png` | `thumb.php?f=Saarl%C3%A4ndischer_Rundfunk_Logo_2023.svg&w=256` | [Commons:File:Saarländischer Rundfunk Logo 2023.svg](https://commons.wikimedia.org/wiki/File:Saarl%C3%A4ndischer_Rundfunk_Logo_2023.svg) |
-| `logo_bundestag.png` | `thumb.php?f=Logo_of_the_Deutscher_Bundestag.svg&w=256` | [Commons:File:Logo of the Deutscher Bundestag.svg](https://commons.wikimedia.org/wiki/File:Logo_of_the_Deutscher_Bundestag.svg) |
+| `logo_bundestag.png` | `thumb.php?f=Deutscher_Bundestag_logo.svg&w=256` | [Commons:File:Deutscher Bundestag logo.svg](https://commons.wikimedia.org/wiki/File:Deutscher_Bundestag_logo.svg) |
 
 All six source files are tagged **Public domain** on Wikimedia Commons (word marks and, for the Bundestag,
-an official emblem), which is why they may be redistributed here. `thumb.php` renders the SVG at the asked
-width - 256 px was picked because a channel tile is never larger than that in the web client and the whole
-set stays under 40 kB inside the assembly.
+its own emblem: the eagle Prof. Ludwig Gies designed in 1953, redrawn flat by büro uebele in 2008), which is
+why they may be redistributed here. `thumb.php` renders the SVG at the asked width - 256 px was picked because
+a channel tile is never larger than that in the web client and the whole set stays under 50 kB inside the
+assembly.
+
+Commons holds a second Bundestag file, `File:Logo of the Deutscher Bundestag.svg`, whose name sounds like the
+better fit for this purpose and which is the wrong picture twice over: it is an Inkscape outline that
+rasterises to a few thin strokes on white with no eagle in it at all, and where the file used here is used by
+thirty or more Wikimedia pages - among them the English and German `Bundestag` articles - that one is used by
+two. It is also the eagle bundestag.de serves today: its own inline logo measures 63.23 x 55 and this file
+400.006 x 347.939, the same 1.1496 to one, so the two are the same drawing redrawn flat.
 
 To re-render one (the width has to be repeated, `Special:FilePath` ignores it):
 

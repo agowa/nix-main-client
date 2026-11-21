@@ -151,7 +151,7 @@ public static class ZdfChannelCatalog
         // Not a broadcaster but on the same platform: the two channels of the German Bundestag. The API's
         // names for these carry soft hyphens ("Parlaments­fern­sehen"), which is not what to show in a guide.
         // Neither has an artwork of its own anywhere - not on the logo host, not on Wikimedia - so both carry
-        // the Bundestag's own word mark, which is as close to a logo for them as anything gets.
+        // the Bundestag's own eagle, which is as close to a logo for them as anything gets.
         new("parlamentsfernsehen_1", "Parlamentsfernsehen Kanal 1", string.Empty,
             "https://bttv-live-z.r53.cdn.tv1.eu/13014bundestag-hk1/_definst_/live/video/hk1_de.smil/playlist.m3u8",
             false, PlatformGroup, IsHd: false, LogoAsset: LogoBundestag),

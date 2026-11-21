@@ -127,8 +127,8 @@ member. **3sat, everything NDR makes, ONE, Radio Bremen and SR are 404** there u
 two parliamentary channels have nothing to point at anywhere - so those ten channels carry their logo inside the
 plugin instead (six files): `Assets/*.png`, embedded in the assembly by the csproj and unpacked once into
 `<dataDir>/data/ZdfLive/logos` by `ChannelLogoAssets`, which is what `ChannelInfo.ImagePath` then points at.
-`Assets/SOURCES.md` lists each source and its licence - all six are Public domain word marks rendered from
-Wikimedia Commons SVGs at 256 px, 40 kB together.
+`Assets/SOURCES.md` lists each source and its licence - all six are Public domain, rendered from Wikimedia
+Commons SVGs at 256 px, 47 kB together; five of them are word marks, the sixth is the Bundestag's eagle.
 
 That is not tidiness but the failure mode: a channel's remote logo is fetched only when something asks for the tile
 the first time (`ImageController` → `LibraryManager.ConvertImageToLocal(..., removeOnFailure: true)`), and one
@@ -201,14 +201,26 @@ Added since, on a running server (2026-11-19):
   *Radio Bremen*, *SR* and both parliamentary channels hold a path under `<dataDir>/data/ZdfLive/logos/`, and
   `/Items/{id}/Images/Primary` answers `200 image/png` from it in 15-30 ms (the first Wikimedia fetch had taken
   1.3 s, and any failed fetch used to leave a broken tile behind - see the artwork section)
-* both parliamentary channels have a picture now; they share the Bundestag's own word mark, which is the only
-  artwork either of them has anywhere
+* both parliamentary channels have a picture now; they share the Bundestag's own emblem, which is the only
+  artwork either of them has anywhere - that file was still the wrong one, see 2026-11-20
 * an install that already held remote logo addresses is moved onto the shipped files without anything breaking
   first: one pass logged `'NDR Niedersachsen' was still pointing at https://commons.wikimedia.org/...; this plugin
   carries that picture itself now, so it uses ...` for six channels and rewrote their stored paths
 * a device added the way the dropdown adds one - `POST /LiveTv/TunerHosts` with `"FriendlyName": null` - is
   returned *and* written to `livetv.xml` as `"ZDF Live TV"` in that same request, so the tuner list never shows
   "Unknown" for it; a name typed by an operator (`"Mein Sender"`) is kept as given
+
+Added since, on a running server (2026-11-20):
+
+* the two parliamentary channels show the Bundestag's eagle now. The Commons file first chosen for them was
+  `File:Logo of the Deutscher Bundestag.svg`, which rasterises to a few thin strokes with no eagle in it and is
+  used by two Wikimedia pages; the one shipped instead, `File:Deutscher Bundestag logo.svg`, is used by thirty or
+  more - among them the English and German `Bundestag` articles - and matches the eagle bundestag.de serves today
+  (`Assets/SOURCES.md` has both checks)
+* that needed no write to any channel: only the file behind `<dataDir>/data/ZdfLive/logos/logo_bundestag.png`
+  changed, from 4649 to 12093 bytes, because `ChannelLogoAssets` rewrites a bundled logo whose size differs. Both
+  channels kept their stored path and `/Items/{id}/Images/Primary` answers `200 image/png` with the new 12093 bytes
+  for each of them (first request 0.6 s, then 37 ms)
 
 ZDF/ZDFneo/ZDFinfo/3sat/phoenix playback could **not** be tested from the network available here, because
 that egress is not in Germany - see the geo section. Everything up to and including handing the URL to the
