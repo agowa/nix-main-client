@@ -103,6 +103,46 @@ a leading slash .NET will not accept), and times arrive in the broadcaster's zon
 The feed also returns stale slots - one channel's answer contained events from months ago - so everything is
 filtered to the requested window before it reaches the guide.
 
+## Channel artwork
+
+A Twitch account's picture is an address into Twitch's own CDN, and it moves whenever its owner uploads a new
+one - the old address stops being served. The server would not notice: `GuideManager.UpdateChannel()` only
+touches the image of a channel that has none, so whatever was handed out first is kept forever. Worse than
+merely stale, because `ImageController.GetImage()` converts a remote image to local with `removeOnFailure:
+true`: the first request for an address that no longer exists answers an error *and* drops the stored
+reference, and jellyfin-web then shows a broken picture rather than the letter tile it would have drawn with
+no image at all.
+
+So this plugin keeps its own copy - `AvatarAssets` downloads each offered channel's picture once into
+`<dataDir>/TwitchLive/avatars/<login>.png`, and the channel is handed out with that as
+`ChannelInfo.ImagePath`, so nothing has to be fetched when somebody opens the guide. The file name comes from
+the login alone rather than from the address it came from, which is what makes an avatar change free: newer
+bytes behind a path every channel already points at, no database row involved. Downloads are four at a time,
+and a channel list waits at most 10 s for them - whatever is still out there lands in the background and is
+used by the next list. Only pictures whose address changed since the process started are fetched again, so
+that is one request per followed channel after a start and none afterwards. Until a picture lands, or if it
+never does, Twitch's own address is offered as before: artwork can be missing here but never broken by this.
+
+`ChannelArtwork` then does the thing the server will not. On each channel list - throttled to 15 min while
+nothing is offered differently, which an avatar change is not - it compares what a channel holds against what
+the plugin offers and steps in when the stored reference does not resolve (403/404/410, or a file that is
+gone), when it is artwork of this plugin's own under an older name (any address on Twitch's CDN, or a file
+from its picture folder), or when it is a copy the server downloaded into *that channel's own* image folder
+back when addresses were still being handed out - which is every install predating `AvatarAssets`. That third
+case is the only place where artwork this plugin did not place itself gets replaced: a Live TV channel is
+`SourceType.LiveTV` with no image providers and nothing on disk to scan, so the server converting what a tuner
+offered is the only realistic way anything gets into that folder - an image posted through `SetItemImage` is
+the one thing that could be there and would be lost, which is why it replaces such a picture only with a
+current picture of the same streamer, never with nothing, and logs each one by name.
+
+Verified on 2026-11-21 against Twitch and jellyfin 10.11.11: after a restart the three configured channels'
+pictures appeared in `<dataDir>/TwitchLive/avatars` (46 kB, 85 kB, 101 kB) about 23 s after `Startup complete`
+with no task triggered; all three had been holding `metadata/livetv/<id>/metadata/poster.png` and the startup
+pass moved them onto the plugin's own files, each named in the log. `/Items/{id}/Images/Primary` then answers
+exactly those bytes - `200 image/png`, nothing copied under `metadata/livetv/`. Pointing one channel at a dead
+Wikimedia address, another at a Twitch CDN address that never existed, and deleting a third's picture file all
+came back to `<dataDir>/TwitchLive/avatars/<login>.png` on the next start.
+
 ## Signing in is optional, and what a token buys
 
 Everything above works anonymously. Putting an OAuth access token of your own account into the settings page
@@ -219,5 +259,7 @@ curl -s https://gql.twitch.tv/gql -H 'Client-Id: kimne78kx3ncx6brgo4mv6wki5h1ko'
   channel's primary image (Twitch's profile picture). Anything wider belongs to the programme: `ProgramInfo`
   carries `ImageUrl`, `ThumbImageUrl`, `BackdropImageUrl` and `LogoImageUrl`, which is where the live thumbnail
   and the category box art go.
-* **A logo URL cannot be taken back once stored.** Jellyfin writes a channel's image into its database item only
-  while it has none, so an address that later stops resolving stays on that channel until someone clears it.
+* **An avatar change is only visible because this plugin copies the pictures itself.** Jellyfin writes a channel's
+  image into its database item while it has none and never re-reads it, so without `AvatarAssets` and
+  `ChannelArtwork` (see the artwork section) a streamer uploading a new picture would leave that tile pointing at an
+  address nobody serves any more - permanently.
