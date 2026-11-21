@@ -27,8 +27,9 @@ public sealed class ServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<TwitchHelix>();
         serviceCollection.AddSingleton<TwitchChannelRepository>();
 
-        // The streamer pictures this plugin keeps for itself (see AvatarAssets); nothing hands them out yet.
+        // The streamer pictures this plugin keeps for itself, and the pass that moves channels onto them.
         serviceCollection.AddSingleton<AvatarAssets>();
+        serviceCollection.AddSingleton<ChannelArtwork>();
         serviceCollection.AddSingleton<ITunerHost, TwitchTunerHost>();
 
         // There is no XMLTV for "who is streaming right now", so the guide comes from this plugin too.

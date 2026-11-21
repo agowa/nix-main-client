@@ -34,6 +34,7 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
     private readonly TwitchChannelRepository _repository;
     private readonly LiveTvDevices _devices;
     private readonly AvatarAssets _avatars;
+    private readonly ChannelArtwork _artwork;
     private readonly ILogger<TwitchTunerHost> _logger;
 
     /// <summary>Initializes a new instance of the <see cref="TwitchTunerHost"/> class.</summary>
@@ -41,11 +42,13 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
         TwitchChannelRepository repository,
         LiveTvDevices devices,
         AvatarAssets avatars,
+        ChannelArtwork artwork,
         ILogger<TwitchTunerHost> logger)
     {
         _repository = repository;
         _devices = devices;
         _avatars = avatars;
+        _artwork = artwork;
         _logger = logger;
     }
 
@@ -120,7 +123,7 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
             // Whichever of the two this plugin can offer: its own file if it has one, Twitch's address until it
             // does. The file is preferred because nothing has to be fetched to show it - and because a picture
             // this plugin holds itself is replaced in place when the streamer changes it, without any channel
-            // having to be rewritten.
+            // having to be rewritten (see ChannelArtwork for what happens to addresses stored before that).
             var picture = config.ShowChannelLogos
                 ? _avatars.PathFor(channel.Login) ?? channel.Status.ProfileImageUrl
                 : null;
@@ -176,6 +179,19 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
                 ImageUrl = remotePicture ? picture : null
             });
         }
+
+        // Last, because it is the part nobody else will do: a channel that still holds an address from an earlier
+        // list - one the streamer has since replaced, or one this plugin has now fetched for itself - keeps it for
+        // good unless something steps in. See ChannelArtwork.
+        var logosByChannelId = new Dictionary<string, string?>(result.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var channel in result)
+        {
+            // Whichever field the picture ended up in: the repair compares what a channel holds against this value
+            // and does not care whether the answer is an address or one of our own files.
+            logosByChannelId[channel.Id] = channel.ImagePath ?? channel.ImageUrl;
+        }
+
+        await _artwork.RepairAsync(logosByChannelId, cancellationToken).ConfigureAwait(false);
 
         _logger.LogDebug(
             "Twitch Live TV: offering {Count} of {Configured} configured channels on tuner device '{Device}'",
