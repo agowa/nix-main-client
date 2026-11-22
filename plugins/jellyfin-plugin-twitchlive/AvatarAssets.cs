@@ -62,6 +62,16 @@ public sealed class AvatarAssets
     /// <summary>Folder under the server's data directory these pictures live in.</summary>
     private static readonly string[] FolderParts = ["TwitchLive", "avatars"];
 
+    /// <summary>
+    /// How many logins the remembered source addresses cover. Followed channels are capped at 2000 and a
+    /// hand-written list is rarely longer, so this only ever trips on an operator who churns through follows;
+    /// it exists because the dictionary would otherwise outlive every channel it was written for.
+    /// </summary>
+    private const int MaxRememberedLogins = 4096;
+
+    /// <summary>How many refused addresses are remembered, so one broken host cannot grow a set forever.</summary>
+    private const int MaxReportedAddresses = 512;
+
     /// <summary>Extensions accepted from an address; anything else is stored as PNG, which is what Twitch sends.</summary>
     private static readonly string[] KnownExtensions = [".png", ".jpg", ".jpeg", ".webp", ".gif"];
 
@@ -192,6 +202,11 @@ public sealed class AvatarAssets
             }
         }
 
+        // The batch is the only moment this class learns which logins still matter, so it is also where the
+        // remembered addresses lose the ones that stopped being followed. Without this an account that follows
+        // and unfollows over months keeps one entry per login it ever saw.
+        PruneRemembered(avatarUrlsByLogin);
+
         if (missing.Count == 0)
         {
             return;
@@ -241,6 +256,11 @@ public sealed class AvatarAssets
     /// <returns><c>false</c> only when the address answered 403, 404 or 410.</returns>
     public async Task<bool> IsStillServedAsync(string url, CancellationToken cancellationToken)
     {
+        if (!IsFetchableAddress(url))
+        {
+            return true;
+        }
+
         try
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -273,9 +293,22 @@ public sealed class AvatarAssets
         => path.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
            || path.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>The file name an address would be stored under for this login.</summary>
-    private static string FileNameFor(string login, string url)
+    /// <summary>
+    /// The file name an address would be stored under for this login, or <c>null</c> when the login may not
+    /// name a file at all.
+    /// </summary>
+    /// <remarks>
+    /// The repository only ever asks about logins that pass <see cref="TwitchApi.IsPlausibleLogin"/>, so this
+    /// check is not what keeps the folder sane today - it is what keeps it sane if a later change feeds this
+    /// class something else. The file name ends up inside a path the server reads back as channel artwork, and
+    /// a login containing a separator would put bytes outside <see cref="Folder"/>: worth refusing twice.
+    /// </remarks>
+    internal static string? FileNameFor(string login, string url)
     {
+        if (!TwitchApi.IsPlausibleLogin(login))
+        {
+            return null;
+        }
         var extension = ".png";
 
         try
@@ -299,6 +332,69 @@ public sealed class AvatarAssets
         }
 
         return login + extension;
+    }
+
+    /// <summary>
+    /// Says whether an address may be fetched at all.
+    /// </summary>
+    /// <remarks>
+    /// Twitch supplies these addresses rather than the operator, so they are treated as input: a scheme other
+    /// than http(s) - or no host in front of it - is not something to hand to the HTTP client, however it got
+    /// into an answer. This also refuses the relative and file-style values that would otherwise be resolved
+    /// against the process's own working directory.
+    /// </remarks>
+    /// <param name="url">The address to judge.</param>
+    /// <returns><c>true</c> when this is an absolute http(s) address with a host.</returns>
+    internal static bool IsFetchableAddress(string? url)
+        => Uri.TryCreate(url, UriKind.Absolute, out var uri)
+           && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+           && !string.IsNullOrEmpty(uri.Host);
+
+    /// <summary>A temporary name for one write, unique per attempt rather than shared by every writer.</summary>
+    private static string TemporaryName(string target)
+        => target + "." + Path.GetRandomFileName() + ".tmp";
+
+    /// <summary>Removes a leftover temporary file, which is never worth an exception over.</summary>
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (IOException)
+        {
+            // A file we could not remove is a few kilobytes in a data directory, nothing more.
+        }
+    }
+
+    /// <summary>
+    /// Forgets remembered addresses and complaints about logins this batch no longer covers, and keeps the set
+    /// of complained-about addresses bounded by dropping it once it stops being useful as a memory.
+    /// </summary>
+    private void PruneRemembered(IReadOnlyDictionary<string, string?> avatarUrlsByLogin)
+    {
+        lock (_gate)
+        {
+            if (_fetchedFrom.Count > MaxRememberedLogins)
+            {
+                var current = new HashSet<string>(avatarUrlsByLogin.Keys, StringComparer.OrdinalIgnoreCase);
+
+                foreach (var login in _fetchedFrom.Keys.Where(k => !current.Contains(k)).ToList())
+                {
+                    _fetchedFrom.Remove(login);
+                }
+            }
+
+            // One line per refused address is the point of this set; past a few hundred it has stopped being a
+            // memory and become a ledger, so start over rather than grow without end.
+            if (_reported.Count > MaxReportedAddresses)
+            {
+                _reported.Clear();
+            }
+        }
     }
 
     private Dictionary<string, string> EnsureScanned()
@@ -359,6 +455,12 @@ public sealed class AvatarAssets
 
     private async Task DownloadAsync(string login, string url, SemaphoreSlim slots, CancellationToken cancellationToken)
     {
+        if (!IsFetchableAddress(url))
+        {
+            Report(login, url, "is not an http(s) address and was not fetched");
+            return;
+        }
+
         await slots.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         try
@@ -391,34 +493,56 @@ public sealed class AvatarAssets
                 return;
             }
 
-            var target = Path.Combine(Folder, FileNameFor(login, url));
-            var temporary = target + ".tmp";
-
-            await using (var input = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false))
-            await using (var output = File.Create(temporary))
+            var fileName = FileNameFor(login, url);
+            if (fileName is null)
             {
-                var buffer = new byte[81920];
-                long written = 0;
-                int read;
-
-                while ((read = await input.ReadAsync(buffer, timeout.Token).ConfigureAwait(false)) > 0)
-                {
-                    written += read;
-
-                    if (written > MaxBytes)
-                    {
-                        File.Delete(temporary);
-                        Report(login, url, "is larger than the accepted maximum");
-                        return;
-                    }
-
-                    await output.WriteAsync(buffer.AsMemory(0, read), timeout.Token).ConfigureAwait(false);
-                }
+                // Should not happen - the repository only asks about plausible logins - but this is the last
+                // place that could still say no before something is written under a name we did not choose.
+                Report(login, url, "belongs to a login that may not name a file; nothing was stored");
+                return;
             }
 
-            // Through a temporary name, so an interrupted download cannot leave half a picture where the server
-            // is about to look for it - and so a channel already pointing at this path never sees it missing.
-            File.Move(temporary, target, true);
+            var target = Path.Combine(Folder, fileName);
+            var temporary = TemporaryName(target);
+            var stored = false;
+
+            try
+            {
+                await using (var input = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false))
+                await using (var output = File.Create(temporary))
+                {
+                    var buffer = new byte[81920];
+                    long written = 0;
+                    int read;
+
+                    while ((read = await input.ReadAsync(buffer, timeout.Token).ConfigureAwait(false)) > 0)
+                    {
+                        written += read;
+
+                        if (written > MaxBytes)
+                        {
+                            Report(login, url, "is larger than the accepted maximum");
+                            return;
+                        }
+
+                        await output.WriteAsync(buffer.AsMemory(0, read), timeout.Token).ConfigureAwait(false);
+                    }
+                }
+
+                // Through a temporary name, so an interrupted download cannot leave half a picture where the
+                // server is about to look for it - and so a channel already pointing at this path never sees it
+                // missing. The name is unique per attempt (see TemporaryName) because two passes over the same
+                // channel would otherwise share one temporary file and race over who gets to move it away.
+                File.Move(temporary, target, true);
+                stored = true;
+            }
+            finally
+            {
+                if (!stored)
+                {
+                    TryDelete(temporary);
+                }
+            }
 
             lock (_gate)
             {
