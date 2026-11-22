@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -59,15 +60,41 @@ public sealed class TwitchChannelRepository
     /// <summary>Order of the configured logins at the time of the last refresh.</summary>
     private List<string> _logins = [];
 
-    /// <summary>Playback tokens per login, kept just long enough to serve one tune-in.</summary>
-    private readonly Dictionary<string, CachedToken> _tokens = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>How many playback tokens are kept. One tune-in costs one, and an entry is worth seconds.</summary>
+    private const int MaxCachedTokens = 512;
+
+    /// <summary>How many published schedules are kept before the oldest expired ones go.</summary>
+    private const int MaxCachedSchedules = 512;
+
+    /// <summary>How many rejected logins are remembered, so a settings list full of typos cannot grow it forever.</summary>
+    private const int MaxWarnedLogins = 2048;
+
+    /// <summary>
+    /// Playback tokens per login, kept just long enough to serve one tune-in.
+    /// </summary>
+    /// <remarks>
+    /// A concurrent dictionary rather than a plain one: unlike the channel state these are written by whoever
+    /// happens to be tuning in, which is not the thread holding <see cref="_gate"/> - and two viewers starting
+    /// a stream at the same moment used to be able to corrupt the internal arrays of a shared Dictionary.
+    /// </remarks>
+    private readonly ConcurrentDictionary<string, CachedToken> _tokens = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Published schedules per login. They change on the order of days, not minutes.</summary>
-    private readonly Dictionary<string, CachedSchedule> _schedules = new(StringComparer.OrdinalIgnoreCase);
+    /// <remarks>Concurrent for the same reason as <see cref="_tokens"/>: the guide asks per channel.</remarks>
+    private readonly ConcurrentDictionary<string, CachedSchedule> _schedules = new(StringComparer.OrdinalIgnoreCase);
 
     private DateTime _expiresUtc;
     private string? _lastError;
-    private readonly HashSet<string> _warnedAboutLogin = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Logins already complained about, used as a set.
+    /// </summary>
+    /// <remarks>
+    /// Concurrent because it is consulted from two places that do not share a lock: the settings list is checked
+    /// while building every channel list, and the follow list on its way in - neither of which holds
+    /// <see cref="_gate"/>, which only covers the refresh itself.
+    /// </remarks>
+    private readonly ConcurrentDictionary<string, byte> _warnedAboutLogin = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Initializes a new instance of the <see cref="TwitchChannelRepository"/> class.</summary>
     public TwitchChannelRepository(TwitchApi api, TwitchHelix helix, ILogger<TwitchChannelRepository> logger)
@@ -91,17 +118,26 @@ public sealed class TwitchChannelRepository
         var configured = ReadConfiguredLogins(config);
         var followed = await GetFollowedLoginsAsync(config, cancellationToken).ConfigureAwait(false);
 
+        // Membership is asked per login below and the follow list can be two thousand long, so it is a set:
+        // asking a List whether one of those contains a login used to make building one channel list quadratic.
+        var followedSet = new HashSet<string>(followed, StringComparer.OrdinalIgnoreCase);
+
         // Hand-picked logins first and in their configured order: they decide the channel numbers.
         // Follows are appended after them, newest follow first, so importing never renumbers anything.
         var logins = new List<string>(configured.Count + followed.Count);
+        var added = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var login in configured)
         {
-            logins.Add(login);
+            if (added.Add(login))
+            {
+                logins.Add(login);
+            }
         }
 
         foreach (var login in followed)
         {
-            if (!logins.Contains(login, StringComparer.OrdinalIgnoreCase))
+            if (added.Add(login))
             {
                 logins.Add(login);
             }
@@ -109,13 +145,14 @@ public sealed class TwitchChannelRepository
 
         await EnsureStatusesAsync(forceRefresh, config, logins, cancellationToken).ConfigureAwait(false);
 
+        var tracked2 = Volatile.Read(ref _byLogin);
         var result = new List<TwitchChannel>(logins.Count);
 
         foreach (var login in logins)
         {
-            if (_byLogin.TryGetValue(login, out var tracked))
+            if (tracked2.TryGetValue(login, out var tracked))
             {
-                result.Add(tracked.ToChannel(followed.Contains(login, StringComparer.OrdinalIgnoreCase)));
+                result.Add(tracked.ToChannel(followedSet.Contains(login)));
             }
             else
             {
@@ -123,7 +160,7 @@ public sealed class TwitchChannelRepository
                 // asking Twitch about at all (see EnsureStatusesAsync). Either way it is not live.
                 result.Add(new TwitchChannel(login, login, new TwitchStreamStatus(login, login, false, false, null, null, null, null), null, null)
                 {
-                    FromFollows = followed.Contains(login, StringComparer.OrdinalIgnoreCase)
+                    FromFollows = followedSet.Contains(login)
                 });
             }
         }
@@ -155,12 +192,21 @@ public sealed class TwitchChannelRepository
             return null;
         }
 
+        // One pass over the list to index it, then every suffix below is a lookup. With two thousand followed
+        // channels the previous shape - scanning the whole list once per underscore in the id - was the most
+        // expensive thing a tune-in did.
+        var byLogin = new Dictionary<string, TwitchChannel>(channels.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var channel in channels)
+        {
+            byLogin[channel.Login] = channel;
+        }
+
         // The first pass tries the id as it arrived, so the common case costs one comparison.
         var stripped = false;
 
         while (!string.IsNullOrEmpty(id))
         {
-            var match = channels.FirstOrDefault(c => string.Equals(c.Login, id, StringComparison.OrdinalIgnoreCase));
+            byLogin.TryGetValue(id, out var match);
             if (match is not null)
             {
                 if (stripped)
@@ -212,13 +258,33 @@ public sealed class TwitchChannelRepository
             var token = await _api.GetPlaybackTokenAsync(login, cancellationToken).ConfigureAwait(false);
             cached = new CachedToken(token, DateTime.UtcNow + TimeSpan.FromSeconds(Math.Max(0, config.TokenCacheSeconds)));
             _tokens[login] = cached;
+
+            // Nothing else retires these: a channel watched once an hour for a year would otherwise leave one
+            // entry per login that was ever played, each holding a token nobody will ask about again.
+            if (_tokens.Count > MaxCachedTokens)
+            {
+                var nowUtc = DateTime.UtcNow;
+                foreach (var stale in _tokens.Where(p => p.Value.ExpiresUtc <= nowUtc).Select(p => p.Key).ToList())
+                {
+                    _tokens.TryRemove(stale, out _);
+                }
+            }
         }
 
         return TwitchApi.BuildStreamUrl(login, cached.Token);
     }
 
-    /// <summary>The configured logins, normalised and de-duplicated, in configuration order.</summary>
-    private static List<string> ReadConfiguredLogins(PluginConfiguration config)
+    /// <summary>
+    /// The configured logins, normalised, de-duplicated and checked, in configuration order.
+    /// </summary>
+    /// <remarks>
+    /// A login that is not a syntactically possible Twitch login is dropped here rather than carried along: it
+    /// can never be live, so as a channel it is only a tile that never lights up - and further down this plugin
+    /// the login doubles as a file name (one picture per streamer under <c>avatars/&lt;login&gt;.png</c>), which is
+    /// not a job for a string that arrived from a settings box. The one-time warning is what tells the operator
+    /// where their channel went, since the guide no longer shows it at all.
+    /// </remarks>
+    private List<string> ReadConfiguredLogins(PluginConfiguration config)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var logins = new List<string>();
@@ -226,10 +292,32 @@ public sealed class TwitchChannelRepository
         foreach (var entry in config.Channels ?? [])
         {
             var login = TwitchChannelCatalog.Normalize(entry);
-            if (login is not null && seen.Add(login))
+            if (login is null || !seen.Add(login))
             {
-                logins.Add(login);
+                continue;
             }
+
+            if (!TwitchApi.IsPlausibleLogin(login))
+            {
+                // Said once per login rather than once per channel list, because this runs on every guide
+                // question - and said at all because the channel simply does not appear otherwise.
+                if (_warnedAboutLogin.TryAdd(login, 0))
+                {
+                    _logger.LogWarning(
+                        "Twitch Live TV: '{Login}' is not a valid Twitch login (3-25 letters, digits and underscores), so no channel is offered for it - fix it in the plugin settings",
+                        login);
+                }
+
+                if (_warnedAboutLogin.Count > MaxWarnedLogins)
+                {
+                    // Past a point this is not a memory of what was said but a ledger of everything that could be.
+                    _warnedAboutLogin.Clear();
+                }
+
+                continue;
+            }
+
+            logins.Add(login);
         }
 
         return logins;
@@ -255,7 +343,7 @@ public sealed class TwitchChannelRepository
     {
         // A changed channel list must be fetched at once: the new entries have no cached state, and
         // waiting for the previous list's expiry would make a runtime edit look like it did nothing.
-        var configurationChanged = !_logins.SequenceEqual(logins, StringComparer.OrdinalIgnoreCase);
+        var configurationChanged = !Volatile.Read(ref _logins).SequenceEqual(logins, StringComparer.OrdinalIgnoreCase);
 
         if (!configurationChanged && !ShouldFetch(forceRefresh))
         {
@@ -271,10 +359,11 @@ public sealed class TwitchChannelRepository
             }
 
             // Forget channels that were removed, but keep the rest - including their "live since" times.
+            var known = Volatile.Read(ref _byLogin);
             var tracked = new Dictionary<string, TrackedChannel>(StringComparer.OrdinalIgnoreCase);
             foreach (var login in logins)
             {
-                if (_byLogin.TryGetValue(login, out var existing))
+                if (known.TryGetValue(login, out var existing))
                 {
                     tracked[login] = existing;
                 }
@@ -288,7 +377,7 @@ public sealed class TwitchChannelRepository
                 {
                     askable.Add(login);
                 }
-                else if (_warnedAboutLogin.Add(login))
+                else if (_warnedAboutLogin.TryAdd(login, 0))
                 {
                     _logger.LogWarning("Twitch Live TV: '{Login}' is not a valid Twitch login (3-25 letters, digits and underscores) - fix it in the plugin settings", login);
                 }
@@ -339,6 +428,18 @@ public sealed class TwitchChannelRepository
             {
                 throw;
             }
+            catch (UpstreamRateLimitedException ex)
+            {
+                // Twitch named the wait, so that is the backoff: asking again sooner is how a limit becomes a
+                // block, and one guide refresh asks this host several times.
+                _lastError = ex.Message;
+                _expiresUtc = DateTime.UtcNow + ex.Delay;
+                _logger.LogWarning(
+                    "Twitch Live TV: Twitch rate limited this server ({Error}); not asking again for {Seconds} seconds, keeping {Cached} known states meanwhile",
+                    ex.Message,
+                    (int)ex.Delay.TotalSeconds,
+                    tracked.Count);
+            }
             catch (Exception ex)
             {
                 // Not fatal: the previous answers stay in place, so channels keep their group and guide
@@ -355,11 +456,11 @@ public sealed class TwitchChannelRepository
             // A schedule is only worth keeping while its channel is.
             foreach (var stale in _schedules.Keys.Where(k => !tracked.ContainsKey(k)).ToList())
             {
-                _schedules.Remove(stale);
+                _schedules.TryRemove(stale, out _);
             }
 
-            _byLogin = tracked;
-            _logins = logins;
+            Volatile.Write(ref _byLogin, tracked);
+            Volatile.Write(ref _logins, logins);
         }
         finally
         {
@@ -414,6 +515,7 @@ public sealed class TwitchChannelRepository
         {
             var items = await _helix.GetScheduleAsync(userId, config.ScheduleAheadDays, cancellationToken).ConfigureAwait(false);
             _schedules[login] = new CachedSchedule(items, DateTime.UtcNow + ScheduleCacheLifetime);
+            PruneSchedules();
             return items;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -426,7 +528,30 @@ public sealed class TwitchChannelRepository
             // blank, and is not asked again until the cache would have expired anyway.
             _logger.LogWarning(ex, "Twitch Live TV: could not read the schedule of '{Login}'; using the generated guide entry", login);
             _schedules[login] = new CachedSchedule(Array.Empty<TwitchScheduledItem>(), DateTime.UtcNow + TimeSpan.FromMinutes(30));
+            PruneSchedules();
             return Array.Empty<TwitchScheduledItem>();
+        }
+    }
+
+    /// <summary>
+    /// Drops schedules whose channel is gone or whose answer has expired, once the cache outgrew its purpose.
+    /// </summary>
+    /// <remarks>
+    /// A guide refresh walks every channel, so this dictionary is written from a loop rather than one at a
+    /// time - and channels that stop being followed leave their schedule behind. Six hours of reuse is what
+    /// keeps it small in practice; the cap is what keeps it small when an operator rotates through follows.
+    /// </remarks>
+    private void PruneSchedules()
+    {
+        if (_schedules.Count <= MaxCachedSchedules)
+        {
+            return;
+        }
+
+        var nowUtc = DateTime.UtcNow;
+        foreach (var stale in _schedules.Where(p => p.Value.ExpiresUtc <= nowUtc).Select(p => p.Key).ToList())
+        {
+            _schedules.TryRemove(stale, out _);
         }
     }
 
