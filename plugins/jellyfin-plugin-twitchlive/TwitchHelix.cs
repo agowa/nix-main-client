@@ -83,6 +83,11 @@ public sealed class TwitchHelix
             return Array.Empty<TwitchScheduledItem>();
         }
 
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            throw new UpstreamRateLimitedException(RetryAfter(response), "HTTP 429 from " + HelixUrl);
+        }
+
         response.EnsureSuccessStatusCode();
 
 #if NET9_0_OR_GREATER
@@ -91,7 +96,16 @@ public sealed class TwitchHelix
         var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 #endif
 
-        var items = TwitchICalendar.Parse(content);
+        var items = TwitchICalendar.Parse(content, out var truncated);
+
+        if (truncated)
+        {
+            // Better a warning than a guide that quietly stops short of what was published.
+            _logger.LogWarning(
+                "Twitch Live TV: the schedule feed for user {UserId} was longer than this plugin reads; showing the first {Count} slots",
+                userId,
+                items.Count);
+        }
 
         // The feed covers a rolling window; anything outside what was asked for would only make the
         // guide claim to know further ahead than it does.
@@ -153,6 +167,10 @@ public sealed class TwitchHelix
             }
 
             var logins = new List<string>();
+
+            // Twitch pages through the list and a login can appear on two pages; asking a List whether it has
+            // seen one already is quadratic at exactly the size this endpoint allows (2000 follows).
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             string? cursor = null;
 
             do
@@ -167,6 +185,14 @@ public sealed class TwitchHelix
                 AddAuth(request, token, clientId);
 
                 using var response = await SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+                // The follow list is paginated a hundred at a time, so it is the call most likely to be told
+                // to slow down; the header says when to come back and the caller keeps that verdict.
+                if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                {
+                    throw new UpstreamRateLimitedException(RetryAfter(response), "HTTP 429 from " + HelixUrl);
+                }
+
                 if (response.StatusCode == HttpStatusCode.Forbidden)
                 {
                     // 403 with a valid token is Twitch's answer to a missing scope.
@@ -189,7 +215,12 @@ public sealed class TwitchHelix
                     {
                         var name = entry.TryGetProperty("broadcaster_login", out var l) ? l.GetString() : null;
                         var normalized = TwitchChannelCatalog.Normalize(name);
-                        if (normalized is not null && !logins.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+
+                        // Only a login that could be a real one goes any further: this list becomes channel ids
+                        // and, downstream, the file names of the streamer pictures (see AvatarAssets).
+                        if (normalized is not null
+                            && TwitchApi.IsPlausibleLogin(normalized)
+                            && seen.Add(normalized))
                         {
                             logins.Add(normalized);
                         }
@@ -227,7 +258,11 @@ public sealed class TwitchHelix
             // Keep serving the previous list if there was one: a revoked or expired token should not
             // empty the channel list, it should only stop it from changing.
             _lastFollowError = ex.Message;
-            _followsExpireUtc = DateTime.UtcNow + FollowRetryAfterFailure;
+
+            // A limit is a schedule rather than a failure: wait as long as was asked and not longer, which is
+            // the difference between one slow refresh and a follow list that stays stale for half a day.
+            _followsExpireUtc = DateTime.UtcNow
+                                + (ex is UpstreamRateLimitedException limited ? limited.Delay : FollowRetryAfterFailure);
             _logger.LogWarning(
                 "Twitch Live TV: could not read the follow list ({Error}); {Cached} channels from the last successful read are kept for {Minutes} minutes",
                 ex.Message,
@@ -282,6 +317,25 @@ public sealed class TwitchHelix
         }
 
         return (userId, login, scopes);
+    }
+
+    /// <summary>How long a <c>Retry-After</c> asks to be left alone, clamped to something this plugin obeys.</summary>
+    private static TimeSpan RetryAfter(HttpResponseMessage response)
+    {
+        var retry = response.Headers.RetryAfter;
+
+        if (retry?.Delta is { } delta && delta > TimeSpan.Zero)
+        {
+            return delta > TwitchApi.MaxRateLimitWait ? TwitchApi.MaxRateLimitWait : delta;
+        }
+
+        if (retry?.Date is { } date && date > DateTimeOffset.UtcNow)
+        {
+            var wait = date - DateTimeOffset.UtcNow;
+            return wait > TwitchApi.MaxRateLimitWait ? TwitchApi.MaxRateLimitWait : wait;
+        }
+
+        return FollowRetryAfterFailure;
     }
 
     private static void AddAuth(HttpRequestMessage request, string token, string clientId)

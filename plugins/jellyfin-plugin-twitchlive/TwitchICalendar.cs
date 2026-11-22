@@ -43,38 +43,95 @@ public sealed record TwitchScheduledItem(
 /// </remarks>
 public static class TwitchICalendar
 {
+    /// <summary>Most events taken from one feed. A channel publishes a few dozen; this is a ceiling, not an expectation.</summary>
+    public const int MaxEvents = 5000;
+
+    /// <summary>Longest single property value accepted after unfolding (a description of a broadcast is a paragraph).</summary>
+    private const int MaxValueLength = 64 * 1024;
+
+    /// <summary>Most lines walked, so a feed that never ends cannot hold a guide refresh open.</summary>
+    private const int MaxLines = 500_000;
+
     /// <summary>Parses a whole VCALENDAR document into its events, in the order they appear.</summary>
+    /// <param name="reader">The feed.</param>
+    /// <returns>The events found.</returns>
     public static List<TwitchScheduledItem> Parse(TextReader reader)
+        => Parse(reader, out _);
+
+    /// <summary>
+    /// Parses a whole VCALENDAR document into its events, saying whether it stopped early.
+    /// </summary>
+    /// <remarks>
+    /// The feed is Twitch's and the shape it writes is narrow, but it is still somebody else's answer parsed
+    /// into a guide: three bounds keep an unexpected - or hostile - document from deciding how much of this
+    /// process gets used. Values are accumulated in a builder rather than re-joined per continuation line,
+    /// because folding turns one long description into hundreds of lines and <c>value += more</c> copies the
+    /// whole value every time.
+    /// </remarks>
+    /// <param name="reader">The feed.</param>
+    /// <param name="truncated">Set when a bound was hit, so the caller can say so instead of showing fewer slots quietly.</param>
+    /// <returns>The events found.</returns>
+    public static List<TwitchScheduledItem> Parse(TextReader reader, out bool truncated)
     {
         var items = new List<TwitchScheduledItem>();
-        Dictionary<string, string>? current = null;
+        Dictionary<string, StringBuilder>? current = null;
+        StringBuilder? folded = null;
         string? previousName = null;
+        var lines = 0;
+        truncated = false;
+
+        // A folded property is only finished once something other than a continuation line follows it.
+        void Flush()
+        {
+            if (previousName is not null && folded is not null && current is not null)
+            {
+                current[previousName] = folded;
+            }
+
+            folded = null;
+            previousName = null;
+        }
 
         string? line;
         while ((line = reader.ReadLine()) is not null)
         {
+            if (++lines > MaxLines)
+            {
+                truncated = true;
+                break;
+            }
+
             // RFC 5545 folds lines longer than 75 octets by continuing them with a space or tab.
             if (line.Length > 0 && (line[0] == ' ' || line[0] == '\t'))
             {
-                if (previousName is not null && current is not null)
+                if (previousName is not null && folded is not null)
                 {
-                    current[previousName] += line[1..];
+                    if (folded.Length <= MaxValueLength)
+                    {
+                        folded.Append(line, 1, line.Length - 1);
+                    }
+                    else
+                    {
+                        // Keep the event, drop the rest of that one value: a slot with a truncated description
+                        // is still an appointment, and this says the feed was not read to the end.
+                        truncated = true;
+                    }
                 }
 
                 continue;
             }
 
+            Flush();
+
             var trimmed = line.Trim();
             if (trimmed.Length == 0)
             {
-                previousName = null;
                 continue;
             }
 
             if (trimmed.Equals("BEGIN:VEVENT", StringComparison.OrdinalIgnoreCase))
             {
-                current = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                previousName = null;
+                current = new Dictionary<string, StringBuilder>(StringComparer.OrdinalIgnoreCase);
                 continue;
             }
 
@@ -82,11 +139,17 @@ public static class TwitchICalendar
             {
                 if (current is not null && TryBuild(current, out var item) && item is not null)
                 {
+                    if (items.Count >= MaxEvents)
+                    {
+                        truncated = true;
+                        current = null;
+                        break;
+                    }
+
                     items.Add(item);
                 }
 
                 current = null;
-                previousName = null;
                 continue;
             }
 
@@ -99,7 +162,6 @@ public static class TwitchICalendar
             var colon = trimmed.IndexOf(':');
             if (colon <= 0)
             {
-                previousName = null;
                 continue;
             }
 
@@ -116,25 +178,44 @@ public static class TwitchICalendar
                 value = nameAndParams[(semicolon + 1)..] + "\n" + value;
             }
 
-            current[name] = value;
+            current[name] = new StringBuilder(value);
             previousName = name;
+            folded = current[name];
         }
 
+        Flush();
+
+        // An event still open when the document ended is not an event: without END:VEVENT there is no telling
+        // whether what followed was truncated by the transport or never written.
         return items;
     }
 
     /// <summary>Parses a whole VCALENDAR document from its raw text.</summary>
+    /// <param name="text">The feed.</param>
+    /// <returns>The events found.</returns>
     public static List<TwitchScheduledItem> Parse(string text)
+        => Parse(text, out _);
+
+    /// <summary>Parses a whole VCALENDAR document from its raw text, saying whether it stopped early.</summary>
+    /// <param name="text">The feed.</param>
+    /// <param name="truncated">Set when a bound was hit.</param>
+    /// <returns>The events found.</returns>
+    public static List<TwitchScheduledItem> Parse(string text, out bool truncated)
     {
         using var reader = new StringReader(text);
-        return Parse(reader);
+        return Parse(reader, out truncated);
     }
 
-    private static bool TryBuild(Dictionary<string, string> values, out TwitchScheduledItem? item)
+    /// <summary>One property's accumulated text, or <c>null</c> when the event did not carry it.</summary>
+    private static string? Raw(Dictionary<string, StringBuilder> values, string name)
+        => values.TryGetValue(name, out var value) ? value.ToString() : null;
+
+    private static bool TryBuild(Dictionary<string, StringBuilder> values, out TwitchScheduledItem? item)
     {
         item = null;
 
-        if (!values.TryGetValue("DTSTART", out var startRaw))
+        var startRaw = Raw(values, "DTSTART");
+        if (startRaw is null)
         {
             return false;
         }
@@ -147,7 +228,8 @@ public static class TwitchICalendar
         // A slot without an end time is not a lie worth making: one hour is what Twitch's own schedule
         // editor assumes when the broadcaster did not fill the duration in.
         var end = default(DateTime);
-        if (!values.TryGetValue("DTEND", out var endRaw) || !TryReadDate(endRaw, out end))
+        var endRaw = Raw(values, "DTEND");
+        if (endRaw is null || !TryReadDate(endRaw, out end))
         {
             end = start.AddHours(1);
         }
@@ -157,17 +239,17 @@ public static class TwitchICalendar
             return false;
         }
 
-        var title = Unescape(values.GetValueOrDefault("SUMMARY"));
-        var category = Unescape(values.GetValueOrDefault("CATEGORIES"));
+        var title = Unescape(Raw(values, "SUMMARY"));
+        var category = Unescape(Raw(values, "CATEGORIES"));
 
         // DESCRIPTION is "Just Chatting." on a slot with no title, which reads better than "Scheduled".
         if (string.IsNullOrWhiteSpace(title))
         {
-            var description = Unescape(values.GetValueOrDefault("DESCRIPTION")).TrimEnd('.', ' ');
+            var description = Unescape(Raw(values, "DESCRIPTION")).TrimEnd('.', ' ');
             title = string.IsNullOrWhiteSpace(description) ? "Scheduled stream" : description;
         }
 
-        var id = Unescape(values.GetValueOrDefault("UID"));
+        var id = Unescape(Raw(values, "UID"));
         if (string.IsNullOrWhiteSpace(id))
         {
             // Jellyfin keys programmes on the id, so it needs one even if Twitch stopped sending it.

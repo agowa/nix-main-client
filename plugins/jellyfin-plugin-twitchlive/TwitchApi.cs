@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -76,6 +77,9 @@ public sealed class TwitchApi
 {
     private const string GraphQlUrl = "https://gql.twitch.tv/gql";
 
+    /// <summary>Longest wait a <c>Retry-After</c> is obeyed. Beyond that the plugin stops taking orders.</summary>
+    internal static readonly TimeSpan MaxRateLimitWait = TimeSpan.FromMinutes(15);
+
     /// <summary>Twitch logins: 3 to 25 characters of letters, digits and underscores.</summary>
     private static readonly System.Text.RegularExpressions.Regex LoginPattern =
         new("^[a-z0-9_]{3,25}$", System.Text.RegularExpressions.RegexOptions.Compiled);
@@ -87,7 +91,12 @@ public sealed class TwitchApi
     /// Set once Twitch has refused the optional artwork fields for this client id. Kept for the life of
     /// the process: asking again per refresh would pay the same failure every time.
     /// </summary>
-    private bool _artworkRejected;
+    /// <remarks>
+    /// Volatile because it is read before a request and written after a failed one, and nothing serialises
+    /// those two - several guide passes can be in flight. Worst case without it is not a wrong answer but a
+    /// thread that keeps paying for a schema rejection another thread already learned about.
+    /// </remarks>
+    private volatile bool _artworkRejected;
 
     /// <summary>Initializes a new instance of the <see cref="TwitchApi"/> class.</summary>
     public TwitchApi(IHttpClientFactory httpClientFactory, ILogger<TwitchApi> logger)
@@ -325,11 +334,47 @@ public sealed class TwitchApi
     private static string Truncate(string text)
         => text.Length <= 300 ? text : text[..300] + "...";
 
+    /// <summary>How long a <c>Retry-After</c> asks for, or the default when the header is missing or silly.</summary>
+    private static TimeSpan RetryAfter(HttpResponseMessage response)
+    {
+        var retry = response.Headers.RetryAfter;
+
+        if (retry?.Delta is { } delta && delta > TimeSpan.Zero)
+        {
+            return delta > MaxRateLimitWait ? MaxRateLimitWait : delta;
+        }
+
+        if (retry?.Date is { } date && date > DateTimeOffset.UtcNow)
+        {
+            var wait = date - DateTimeOffset.UtcNow;
+            return wait > MaxRateLimitWait ? MaxRateLimitWait : wait;
+        }
+
+        // A 429 without a deadline still means "not now"; five seconds is long enough to matter and short
+        // enough that one stray limit cannot empty the guide for a while.
+        return TimeSpan.FromSeconds(5);
+    }
+
+    /// <summary>
+    /// Splits a list into fixed-size blocks.
+    /// </summary>
+    /// <remarks>
+    /// Indexing rather than <c>Skip(i).Take(size)</c>: the LINQ pair walks the first <c>i</c> items again for
+    /// every block, so cutting a long channel list into documents cost O(n²) on the way to one HTTP request.
+    /// </remarks>
     private static IEnumerable<List<T>> Chunk<T>(IReadOnlyList<T> items, int size)
     {
         for (var i = 0; i < items.Count; i += size)
         {
-            yield return items.Skip(i).Take(size).ToList();
+            var end = Math.Min(i + size, items.Count);
+            var block = new List<T>(end - i);
+
+            for (var j = i; j < end; j++)
+            {
+                block.Add(items[j]);
+            }
+
+            yield return block;
         }
     }
 
@@ -398,6 +443,16 @@ public sealed class TwitchApi
 
         if (!response.IsSuccessStatusCode)
         {
+            // Twitch answers 429 well before anything is broken - fifteen aliases per document add up quickly
+            // on a long channel list - and it says how long to wait. Honouring that is the difference between
+            // one slow refresh and a client id that gets throttled for everything this server does.
+            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                var limited = new UpstreamRateLimitedException(RetryAfter(response), Truncate(response.ReasonPhrase ?? string.Empty));
+                response.Dispose();
+                throw limited;
+            }
+
             // The body says what Twitch objected to, which is the difference between a useful log line
             // and "response status code indicates failure".
             var detail = string.Empty;
