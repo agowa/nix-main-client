@@ -28,8 +28,6 @@
       ./modules/virtualisation.nix
       ./modules/vm.nix
       ./modules/services.nix
-      ./modules/jellyfin-zdf.nix
-      ./modules/jellyfin-twitch.nix
       ./modules/i2pd.nix
       ./modules/tor.nix
       ./modules/sabnzbd.nix
