@@ -165,9 +165,16 @@ public sealed class TwitchTunerHost : ITunerHost, IConfigurableTunerHost
                 ChannelType = ChannelType.TV,
                 ChannelGroup = isLive ? TwitchChannelCatalog.LiveGroup : TwitchChannelCatalog.OfflineGroup,
 
-                // Nothing is being broadcast while a channel is offline, so its picture format is not
-                // known either.
-                IsHD = isLive ? true : null,
+                // Not known, and not knowable from anything this plugin asks: Helix says whether a
+                // channel is live but nothing about the picture it is sending - the resolution only shows
+                // up in the master playlist, which needs a fresh playback token per channel (see
+                // TwitchApi.GetPlaybackTokenAsync) and cannot be fetched for a whole channel list. Saying
+                // "HD" for every live channel was a guess that lands wrong where it is acted on: clients
+                // badge, sort and filter on this flag, so the retransmits, camera feeds and 480p sources
+                // that fill a good part of Twitch get listed ahead of things that really are HD. So it
+                // stays unknown. ZDF can state it per channel because its catalogue is curated by hand
+                // (ZdfChannelDefinition.IsHd); there is no catalogue here to curate.
+                IsHD = null,
 
                 Tags = BuildTags(isLive, channel.FromFollows),
 
