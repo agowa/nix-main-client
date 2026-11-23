@@ -41,18 +41,25 @@ let
 
   # The plugin's own settings, in exactly the format Jellyfin writes them itself
   # (<dataDir>/plugins/configurations/<assembly name>.xml).
+  #
+  # Every value is escaped on the way in. Nothing that reaches here today can break the document - channels are
+  # checked against Twitch's login alphabet below and the two free-text options are a client id and a User-Agent,
+  # both of which an operator types deliberately - but this file is written into Jellyfin's data directory as the
+  # jellyfin user, so an option added later without thinking about it would be markup injection into the server's
+  # own configuration rather than a typo in one setting. Escaping costs nothing and removes the decision.
+  escape = lib.escapeXML;
   pluginConfig = pkgs.writeText "jellyfin-plugin-twitch-live.xml" ''
     <?xml version="1.0" encoding="utf-8"?>
     <PluginConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
       <Channels>
-    ${lib.concatMapStrings (c: "    <string>${c}</string>\n") cfg.channels}  </Channels>
+    ${lib.concatMapStrings (c: "    <string>${escape c}</string>\n") cfg.channels}  </Channels>
       <IncludeOfflineChannels>${lib.boolToString cfg.includeOfflineChannels}</IncludeOfflineChannels>
-      <ClientId>${cfg.clientId}</ClientId>
+      <ClientId>${escape cfg.clientId}</ClientId>
       <StatusCacheSeconds>${toString cfg.statusCacheSeconds}</StatusCacheSeconds>
       <TokenCacheSeconds>${toString cfg.tokenCacheSeconds}</TokenCacheSeconds>
       <GuideAheadMinutes>${toString cfg.guideAheadMinutes}</GuideAheadMinutes>
       <AllowSourceQuality>${lib.boolToString cfg.allowSourceQuality}</AllowSourceQuality>
-      <UserAgent>${cfg.userAgent}</UserAgent>
+      <UserAgent>${escape cfg.userAgent}</UserAgent>
     </PluginConfiguration>
   '';
 

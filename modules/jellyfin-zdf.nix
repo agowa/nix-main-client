@@ -54,16 +54,22 @@ let
   configFileTarget = "${configDir}/Jellyfin.Plugin.ZdfLive.xml";
 
   # The plugin's own settings, in exactly the format Jellyfin writes them itself
-  # (<dataDir>/plugins/configurations/<assembly name>.xml). It carries only what the options below
+  # (<dataDir>/plugins/configurations/<assembly name>.xml), with every value escaped: the keys are checked
+  # against the catalogue below and nothing here can break the document today, but this file lands in Jellyfin's
+  # data directory as the jellyfin user, so an option added later without thinking about escaping would be markup
+  # injection into the server's own configuration rather than a typo in one setting.
+  escape = lib.escapeXML;
+
+  # It carries only what the options below
   # cover: artwork settings are deliberately absent, because Jellyfin keeps the plugin's own default for
   # any element a file does not mention, and those settings belong to the settings page.
   pluginConfig = pkgs.writeText "jellyfin-plugin-zdf-live.xml" ''
     <?xml version="1.0" encoding="utf-8"?>
     <PluginConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
       <EnabledChannels>
-    ${lib.concatMapStrings (c: "    <string>${c}</string>\n") cfg.enabledChannels}  </EnabledChannels>
+    ${lib.concatMapStrings (c: "    <string>${escape c}</string>\n") cfg.enabledChannels}  </EnabledChannels>
       <CacheMinutes>${toString cfg.cacheMinutes}</CacheMinutes>
-      <ApiBaseUrl>${cfg.apiBaseUrl}</ApiBaseUrl>
+      <ApiBaseUrl>${escape cfg.apiBaseUrl}</ApiBaseUrl>
       <SendRefererHeader>${lib.boolToString cfg.sendRefererHeader}</SendRefererHeader>
     </PluginConfiguration>
   '';
