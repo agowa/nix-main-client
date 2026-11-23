@@ -87,6 +87,18 @@ export default class TwitchLiveConfigPage {
         this.importFollows = view.querySelector("#chkImportFollows");
         this.followLimit = view.querySelector("#numFollowLimit");
         this.tokenStatus = view.querySelector("#tokenStatus");
+        this.revealToken = view.querySelector("#btnRevealToken");
+
+        // The stored token lives here rather than in the input - see configPage.html for why the field starts
+        // empty. Saving writes this back unless the operator typed something new, so opening the page can neither
+        // lose a working token nor display one.
+        this.storedToken = "";
+        this.tokenEdited = false;
+
+        this.authToken.addEventListener("input", () => { this.tokenEdited = true; });
+        if (this.revealToken) {
+            this.revealToken.addEventListener("click", () => this.reveal());
+        }
 
         // The form is inside a page that stays in the DOM after navigating away, so bind once here
         // rather than on every show.
@@ -130,7 +142,33 @@ export default class TwitchLiveConfigPage {
         this.guideAhead.value = config.GuideAheadMinutes;
         this.clientId.value = config.ClientId || "";
         this.userAgent.value = config.UserAgent || "";
-        this.authToken.value = config.AuthToken || "";
+
+        // Deliberately not rendered into the field. It stays in memory so that saving keeps it and so "Check
+        // token" can still ask Twitch about it - which is what lets this page work without ever displaying a live
+        // credential to whatever else can see this document.
+        this.storedToken = config.AuthToken || "";
+        this.tokenEdited = false;
+        this.authToken.value = "";
+        this.authToken.placeholder = this.storedToken
+            ? "(stored - press Show to see it, or type to replace it)"
+            : "(none - everything works anonymously)";
+    }
+
+    /** Puts the stored token into the field, on request only. */
+    reveal() {
+        if (!this.storedToken) {
+            this.status("Nothing is stored yet - paste a token to add one.");
+            return;
+        }
+
+        this.authToken.type = "text";
+        this.authToken.value = this.storedToken;
+
+        // From here the field is the truth, so an edit made after revealing is what gets saved.
+        this.tokenEdited = true;
+        if (this.revealToken) {
+            this.revealToken.style.display = "none";
+        }
     }
 
     /** Reads the form into the shape the plugin's configuration class expects. */
@@ -156,7 +194,10 @@ export default class TwitchLiveConfigPage {
             GuideAheadMinutes: Math.max(15, parseInt(this.guideAhead.value, 10) || 240),
             ClientId: (this.clientId.value || "").trim() || FALLBACK.ClientId,
             UserAgent: (this.userAgent.value || "").trim(),
-            AuthToken: (this.authToken.value || "").trim(),
+
+            // An untouched field means "keep what is stored": it is empty on purpose, so reading it literally
+            // would clear a working token the first time an unrelated setting was saved.
+            AuthToken: this.tokenEdited ? (this.authToken.value || "").trim() : this.storedToken,
             UseTokenForPlayback: this.useTokenForPlayback.checked,
             ImportFollowedChannels: this.importFollows.checked
         });
@@ -188,6 +229,7 @@ export default class TwitchLiveConfigPage {
             }
 
             this.config = updated;
+            this.storedToken = updated.AuthToken;
             this.channels.value = updated.Channels.join("\n");
 
             // The same toast the rest of the dashboard uses when it is reachable from here; the inline
@@ -204,9 +246,14 @@ export default class TwitchLiveConfigPage {
         }
     }
 
+    /** The credential to act with: what was typed if that happened, otherwise what the server holds. */
+    currentToken() {
+        return this.tokenEdited ? (this.authToken.value || "").trim() : this.storedToken;
+    }
+
     /** Asks Twitch whose token is in the field, without saving anything first. */
     async checkToken() {
-        const token = (this.authToken.value || "").trim();
+        const token = this.currentToken();
         if (!token) {
             this.status("No token to check - the plugin works anonymously without one.");
             return;
@@ -232,7 +279,7 @@ export default class TwitchLiveConfigPage {
 
     /** Pulls the follow list of the token's account into the channel box. */
     async addFollows() {
-        const token = (this.authToken.value || "").trim();
+        const token = this.currentToken();
         if (!token) {
             this.status("Add my follows needs an OAuth token above - Twitch only gives the list to the account that owns it.", true);
             return;
@@ -296,7 +343,10 @@ export default class TwitchLiveConfigPage {
      *
      * It is used rather than a round trip through the plugin because there is nothing to add for it:
      * Twitch answers cross-origin requests on both id.twitch.tv and api.twitch.tv, so the page can ask
-     * directly and report exactly what Twitch said about the token that was just typed in.
+     * directly and report exactly what Twitch said. Note what that costs: the credential travels in a request
+     * started by this page. That is why the field starts empty (see reveal()) - nothing leaves here unless
+     * somebody pressed Show or typed the token themselves. A plugin endpoint would remove that exposure
+     * entirely, and is where these two buttons belong if they ever matter enough for one.
      */
     async validateToken(token) {
         const clientId = (this.clientId.value || "").trim() || FALLBACK.ClientId;

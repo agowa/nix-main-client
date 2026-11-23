@@ -19,7 +19,9 @@
                               style="width: 100%; font-family: monospace;"
                               placeholder="lofigirl&#10;esl_sc2"></textarea>
                     <div class="fieldDescription">Logins are matched case-insensitively. A login that does
-                        not exist stays in the offline group, and the guide says so.</div>
+                        not exist stays in the offline group, and the guide says so. Something that could not be a
+                        login at all - wrong characters, too short - gets no channel and is named once in the server
+                        log, because it can never go live and would otherwise look like a streamer who never streams.</div>
                 </div>
 
                 <h2 class="sectionTitle">Account (optional)</h2>
@@ -35,7 +37,11 @@
 
                 <div class="inputContainer">
                     <label class="inputLabel inputLabelUnfocused" for="txtAuthToken">OAuth access token</label>
-                    <input id="txtAuthToken" type="text" is="emby-input" autocomplete="off" spellcheck="false"
+                    <!-- type=password, and the controller never fills it on load: this is a long-lived bearer
+                         credential, and this page is open in a browser that also holds the session cookie, every
+                         extension's view of the DOM and anybody standing at the screen. The value stays server-side
+                         until somebody presses Show; leaving the field alone keeps what is stored. -->
+                    <input id="txtAuthToken" type="password" is="emby-input" autocomplete="off" spellcheck="false"
                            placeholder="(none - everything works anonymously)" />
                     <div class="fieldDescription">
                         Stored in this plugin's XML file under the data directory and sent only to
@@ -44,6 +50,8 @@
                         <!-- raised: the class the themes actually style. "button-minor" does not exist in
                              jellyfin-web, and these sit inside a fieldDescription paragraph, whose colour
                              they would otherwise inherit - grey text on a browser-default button. -->
+                        <button type="button" is="emby-button" id="btnRevealToken" class="raised emby-button"
+                                style="margin-left:.5em;">Show</button>
                         <button type="button" is="emby-button" id="btnCheckToken" class="raised emby-button"
                                 style="margin-left:.5em;">Check token</button>
                     </div>
