@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -48,8 +49,27 @@ public sealed class ZdfChannelRepository
 
     private Dictionary<string, string>? _urlByKey;
 
-    /// <summary>Channel names per key, as the API reports them. Also what makes an unlisted channel offerable.</summary>
+    /// <summary>How many logo verdicts are remembered before the expired ones are dropped.</summary>
+    private const int MaxCachedLogos = 512;
+
+    /// <summary>Largest answer this plugin will read from the stream API. The real one is a few hundred kilobytes.</summary>
+    private const long MaxApiBodyBytes = 8 * 1024 * 1024;
+
+    /// <summary>Longest wait a <c>Retry-After</c> is allowed to impose before it is treated as a mistake.</summary>
+    private static readonly TimeSpan MaxRateLimitWait = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// Channel names per key, as the API reports them. Also what makes an unlisted channel offerable.
+    /// </summary>
+    /// <remarks>
+    /// Replaced wholesale rather than edited in place, exactly like <see cref="_urlByKey"/>: it is written while
+    /// holding <see cref="_gate"/> but read by the settings page and by <see cref="Synthesise"/> without it, and
+    /// a Dictionary being grown underneath a reader is how "collection modified" and half-built buckets happen.
+    /// </remarks>
     private Dictionary<string, string> _nameByKey = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The current name table, read the way every unlocked reader should read it.</summary>
+    private Dictionary<string, string> Names => Volatile.Read(ref _nameByKey);
 
     /// <summary>
     /// Whether each logo URL was last found to answer. A channel's image is written into its database
@@ -170,6 +190,17 @@ public sealed class ZdfChannelRepository
             if (!_logos.TryGetValue(url, out var cached) || DateTime.UtcNow >= cached.ExpiresUtc)
             {
                 unknown.Add(url);
+            }
+        }
+
+        // A logo host that gets pointed at a new address per channel - or an operator who keeps pasting new
+        // ones into the settings page - would otherwise leave one entry here forever.
+        if (_logos.Count > MaxCachedLogos)
+        {
+            var nowUtc = DateTime.UtcNow;
+            foreach (var stale in _logos.Where(p => p.Value.ExpiresUtc <= nowUtc).Select(p => p.Key).ToList())
+            {
+                _logos.TryRemove(stale, out _);
             }
         }
 
@@ -376,7 +407,8 @@ public sealed class ZdfChannelRepository
     /// </summary>
     private ZdfChannelDefinition Synthesise(string key)
     {
-        var name = _nameByKey.TryGetValue(key, out var discovered) && !string.IsNullOrWhiteSpace(discovered)
+        var names = Names;
+        var name = names.TryGetValue(key, out var discovered) && !string.IsNullOrWhiteSpace(discovered)
             ? discovered
             : key;
 
@@ -395,7 +427,8 @@ public sealed class ZdfChannelRepository
         var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         await EnsureUrlsAsync(forceRefresh, config, cancellationToken).ConfigureAwait(false);
 
-        var result = new List<DiscoveredChannel>(ZdfChannelCatalog.All.Count + _nameByKey.Count);
+        var knownNames = Names;
+        var result = new List<DiscoveredChannel>(ZdfChannelCatalog.All.Count + knownNames.Count);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // Catalogue first and in its order: those entries carry a guide id and a logo. The API's own
@@ -408,7 +441,7 @@ public sealed class ZdfChannelRepository
             }
         }
 
-        foreach (var pair in _nameByKey.OrderBy(p => p.Value, StringComparer.OrdinalIgnoreCase))
+        foreach (var pair in knownNames.OrderBy(p => p.Value, StringComparer.OrdinalIgnoreCase))
         {
             if (seen.Add(pair.Key))
             {
@@ -474,6 +507,18 @@ public sealed class ZdfChannelRepository
             {
                 throw;
             }
+            catch (UpstreamRateLimitedException ex)
+            {
+                // The answer said how long to wait, so that is the backoff rather than the built-in five minutes:
+                // asking again sooner is what turns one limit into a permanently blocked client.
+                _lastError = ex.Message;
+                _expiresUtc = DateTime.UtcNow + ex.Delay;
+                _logger.LogWarning(
+                    "ZDF Live TV: the stream API rate limited this server ({Error}); not asking again for {Seconds} seconds, using {Cached} cached and built-in URLs meanwhile",
+                    ex.Message,
+                    (int)ex.Delay.TotalSeconds,
+                    _urlByKey?.Count ?? 0);
+            }
             catch (Exception ex)
             {
                 // Not fatal: the catalogue's own URLs are used until the API answers again.
@@ -493,20 +538,49 @@ public sealed class ZdfChannelRepository
         }
     }
 
+    /// <summary>
+    /// Asks the stream API which master playlist each channel currently has.
+    /// </summary>
+    /// <remarks>
+    /// Two things this endpoint's answer cannot be trusted about, both handled here rather than left to luck:
+    /// <list type="bullet">
+    ///   <item><description>The address comes from the settings page, so it is checked before anything is asked of
+    /// it. An operator pointing it at their own proxy is expected; one typing <c>file://</c>, or having an option
+    /// fed to them by something else, is not - and this plugin runs as the Jellyfin user, which can read the
+    /// server's own configuration.</description></item>
+    ///   <item><description>The answer is deserialised in full, so it is capped: a host that returns something
+    /// enormous - by mistake or on purpose - should cost this process a few megabytes and a warning, not every
+    /// byte of memory the server has.</description></item>
+    /// </list>
+    /// Names are merged into a copy of the current table and published in one assignment (see
+    /// <see cref="_nameByKey"/>), because readers exist that never take <see cref="_gate"/>.
+    /// </remarks>
     private async Task<Dictionary<string, string>> FetchUrlsAsync(PluginConfiguration config, CancellationToken cancellationToken)
     {
+        if (!IsAllowedEndpoint(config.ApiBaseUrl))
+        {
+            throw new InvalidOperationException(
+                $"'{config.ApiBaseUrl}' is not an http(s) address with a host, so the stream API was not asked - set it in the plugin settings");
+        }
+
         using var client = _httpClientFactory.CreateClient(NamedClient.Default);
         using var response = await client.GetAsync(config.ApiBaseUrl, cancellationToken).ConfigureAwait(false);
+
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            throw new UpstreamRateLimitedException(RetryAfter(response), Truncate(response.ReasonPhrase ?? string.Empty));
+        }
+
         response.EnsureSuccessStatusCode();
 
 #if NET9_0_OR_GREATER
-        using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        await using var streamed = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
 #else
-        using var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        using var streamed = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
 #endif
-        var entries = await JsonSerializer
-            .DeserializeAsync<Dictionary<string, ChannelEntry>>(stream, JsonOptions, cancellationToken)
-            .ConfigureAwait(false);
+        var body = await ReadCappedAsync(streamed, MaxApiBodyBytes, cancellationToken).ConfigureAwait(false);
+
+        var entries = JsonSerializer.Deserialize<Dictionary<string, ChannelEntry>>(body, JsonOptions);
 
         var urls = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (entries is null)
@@ -514,11 +588,13 @@ public sealed class ZdfChannelRepository
             return urls;
         }
 
+        var names = new Dictionary<string, string>(Names, StringComparer.OrdinalIgnoreCase);
+
         foreach (var pair in entries)
         {
             if (!string.IsNullOrWhiteSpace(pair.Value?.Name))
             {
-                _nameByKey[pair.Key] = pair.Value!.Name!;
+                names[pair.Key] = pair.Value!.Name!;
             }
 
             if (!string.IsNullOrWhiteSpace(pair.Value?.StreamUrl))
@@ -527,9 +603,92 @@ public sealed class ZdfChannelRepository
             }
         }
 
+        Volatile.Write(ref _nameByKey, names);
+
         _logger.LogDebug("ZDF Live TV: resolved {Count} stream URLs from {Url}", urls.Count, config.ApiBaseUrl);
         return urls;
     }
+
+    /// <summary>
+    /// Says whether a configured address may be requested at all.
+    /// </summary>
+    /// <remarks>
+    /// Only the scheme and the presence of a host are judged, not the host itself: pointing this at a proxy or a
+    /// mirror of one's own is a documented setting, while <c>file://</c>, <c>gopher://</c> and an address without
+    /// a host are never what the option means. Loopback over plain http stays allowed because that is exactly
+    /// what a local proxy looks like; everything else has to be https, which is what the real endpoint is.
+    /// </remarks>
+    internal static bool IsAllowedEndpoint(string? url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || string.IsNullOrEmpty(uri.Host))
+        {
+            return false;
+        }
+
+        if (uri.Scheme == Uri.UriSchemeHttps)
+        {
+            return true;
+        }
+
+        if (uri.Scheme != Uri.UriSchemeHttp)
+        {
+            return false;
+        }
+
+        // Plain http is only what the option means when something on this very machine is answering: a proxy or
+        // a local mirror. Anywhere else, sending it over http - with the channel list in the clear - would be a
+        // downgrade this plugin should not quietly agree to.
+        return string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase)
+               || (IPAddress.TryParse(uri.Host, out var host) && IPAddress.IsLoopback(host));
+    }
+
+    /// <summary>Reads a stream up to a limit, and says so in the exception when the answer is bigger than that.</summary>
+    private static async Task<byte[]> ReadCappedAsync(Stream stream, long maxBytes, CancellationToken cancellationToken)
+    {
+        using var buffer = new MemoryStream();
+        var chunk = new byte[81920];
+        int read;
+
+        while ((read = await stream.ReadAsync(chunk, cancellationToken).ConfigureAwait(false)) > 0)
+        {
+            if (buffer.Length + read > maxBytes)
+            {
+                throw new InvalidOperationException(
+                    $"the answer was larger than the {maxBytes / (1024 * 1024)} MB this plugin accepts from the stream API");
+            }
+
+            buffer.Write(chunk, 0, read);
+        }
+
+        return buffer.ToArray();
+    }
+
+    /// <summary>How long a <c>Retry-After</c> asks for, or the ordinary retry delay when it does not say.</summary>
+    private static TimeSpan RetryAfter(HttpResponseMessage response)
+    {
+        var retry = response.Headers.RetryAfter;
+
+        // Both forms RFC 9110 allows: a number of seconds, or a date. Either is clamped - an API asking for a
+        // day of silence gets waited out for fifteen minutes and asked again, because losing the channel list
+        // for a day over one header would be the worse outcome, and this plugin has no way to tell an operator
+        // that it is obeying a deadline.
+        if (retry?.Delta is { } delta && delta > TimeSpan.Zero)
+        {
+            return delta > MaxRateLimitWait ? MaxRateLimitWait : delta;
+        }
+
+        if (retry?.Date is { } date && date > DateTimeOffset.UtcNow)
+        {
+            var wait = date - DateTimeOffset.UtcNow;
+            return wait > MaxRateLimitWait ? MaxRateLimitWait : wait;
+        }
+
+        // No header to go by: the ordinary backoff, which is already longer than nothing.
+        return RetryAfterFailure;
+    }
+
+    private static string Truncate(string? text)
+        => string.IsNullOrEmpty(text) ? string.Empty : (text.Length <= 200 ? text : text[..200] + "...");
 
     /// <summary>A logo verdict and the moment it is checked again.</summary>
     private sealed record CachedLogo(bool Exists, DateTime ExpiresUtc);
