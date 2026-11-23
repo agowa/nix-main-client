@@ -65,6 +65,7 @@
     "sr_mod"
     "igb"
     "btusb"
+    "sg" # Needed for MakeMKV
   ];
 
   # load in 2nd stage after root file system has been mounted.
@@ -103,6 +104,7 @@
     "sr_mod"
     "igb"
     "btusb"
+    "sg" # Needed for MakeMKV
   ];
 
   boot.blacklistedKernelModules = [
