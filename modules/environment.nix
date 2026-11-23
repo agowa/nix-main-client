@@ -55,6 +55,7 @@
     # WARNING: Check is skipped, please install recommended missing binary /usr/sbin/cache_check!
     bees
     p7zip
+    pv
   ];
   environment.sessionVariables = {
     RUSTICL_FEATURES = "fp16,fp64";
