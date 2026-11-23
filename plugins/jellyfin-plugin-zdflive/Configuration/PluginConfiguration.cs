@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Plugins;
@@ -84,10 +85,30 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <param name="key">The catalogue key.</param>
     /// <returns>The configured URL, or <c>null</c> when this channel has no override.</returns>
     public string? LogoUrlFor(string key)
-    {
-        var entry = LogoUrls?
-            .FirstOrDefault(u => string.Equals(u?.Name, key, StringComparison.OrdinalIgnoreCase));
+        => LogoUrlMap().TryGetValue(key, out var url) ? url : null;
 
-        return string.IsNullOrWhiteSpace(entry?.Value) ? null : entry!.Value;
+    /// <summary>
+    /// The per-channel logo overrides as a lookup, ignoring case.
+    /// </summary>
+    /// <remarks>
+    /// Building this once is what makes the channel list linear: asking for one channel at a time meant walking
+    /// the whole override array per channel, twice over - once to check the logos and once to pick them. The
+    /// array is small today, which is exactly why it was never noticed; the settings page lets an operator add
+    /// an entry per channel, so it grows with the list it is applied to.
+    /// </remarks>
+    /// <returns>The configured URLs by catalogue key.</returns>
+    public Dictionary<string, string> LogoUrlMap()
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var entry in LogoUrls ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(entry?.Name) && !string.IsNullOrWhiteSpace(entry!.Value))
+            {
+                map[entry.Name] = entry.Value;
+            }
+        }
+
+        return map;
     }
 }

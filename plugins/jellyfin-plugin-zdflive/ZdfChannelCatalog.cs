@@ -16,6 +16,12 @@ namespace Jellyfin.Plugin.ZdfLive;
 /// <param name="EnabledByDefault">Whether the channel is on without any configuration.</param>
 /// <param name="Group">Jellyfin channel group.</param>
 /// <param name="IsHd">Recorded as the channel's HD flag.</param>
+/// <param name="IsInterlaced">
+/// Whether this feed is offered as interlaced. False for everything here on purpose: these are HLS ladders, and
+/// a broadcaster that ships 1080i to aerial viewers delivers progressive segments over HTTP. Claiming otherwise
+/// makes clients deinterlace video that has no fields to lose - which is why this is a per-channel fact rather
+/// than one value asserted about the whole catalogue.
+/// </param>
 /// <param name="LogoId">
 /// The id the logo host knows this channel under. Usually its guide id, but not always: that host keys
 /// on its own catalogue and spells a few of them differently ("ARD.de" for Das Erste, "SWRSR.de" for the
@@ -37,7 +43,8 @@ public sealed record ZdfChannelDefinition(
     string Group = "ZDF Live",
     bool IsHd = true,
     string? LogoId = null,
-    string? LogoAsset = null);
+    string? LogoAsset = null,
+    bool IsInterlaced = false);
 
 /// <summary>
 /// The channel catalogue. Metadata is curated here on purpose: the upstream API's own names are
@@ -194,7 +201,10 @@ public static class ZdfChannelCatalog
     {
         if (!string.IsNullOrWhiteSpace(overrideUrl))
         {
-            return overrideUrl.Trim();
+            // Pasted into the settings page, so it is checked rather than trusted: this address ends up in a
+            // channel record that the server will fetch on somebody's behalf.
+            var trimmed = overrideUrl.Trim();
+            return IsRemote(trimmed) ? trimmed : null;
         }
 
         if (string.IsNullOrWhiteSpace(template))
@@ -213,6 +223,13 @@ public static class ZdfChannelCatalog
         }
 
         if (!template.Contains("{id}", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        // Same reasoning as the per-channel URL above, one level up: a template is used for every channel that
+        // has no file of its own, so a wrong scheme here would be handed out many times over.
+        if (!IsRemote(template.Replace("{id}", "x", StringComparison.Ordinal)))
         {
             return null;
         }
@@ -300,9 +317,18 @@ public static class ZdfChannelCatalog
         }
     }
 
+    /// <summary>The catalogue keyed for lookup. Same entries as <see cref="All"/>, in that list's order.</summary>
+    private static readonly Dictionary<string, ZdfChannelDefinition> ByKey =
+        All.GroupBy(c => c.Key, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Looks a definition up by key, ignoring case and surrounding whitespace.</summary>
+    /// <remarks>
+    /// A dictionary rather than a scan: this is called for every configured channel on every channel list, and
+    /// again per suffix while a tuner resolves an id - which with thirty-odd entries was pure repetition of work
+    /// the catalogue could answer directly.
+    /// </remarks>
     public static ZdfChannelDefinition? Find(string? key)
         => string.IsNullOrWhiteSpace(key)
             ? null
-            : All.FirstOrDefault(c => string.Equals(c.Key, key.Trim(), StringComparison.OrdinalIgnoreCase));
+            : ByKey.TryGetValue(key.Trim(), out var definition) ? definition : null;
 }

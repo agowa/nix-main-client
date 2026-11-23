@@ -82,20 +82,27 @@ public sealed class ZdfTunerHost : ITunerHost, IConfigurableTunerHost
         // somewhere inside the catalogue: a channel's artwork has to exist before the server is told about it.
         Func<string, string?> bundledLogo = _assets.PathFor;
 
+        // The overrides as a lookup rather than an array walked per channel (see LogoUrlMap), read once because
+        // the configuration object can be replaced by a settings save between two of those walks.
+        var logoOverrides = config.LogoUrlMap();
+
         // Every logo the list wants, checked in one go before the loop: see VerifyLogosAsync for why an
         // untested URL is worse than no URL at all - and for why a shipped file is not part of that question.
         var usableLogos = await _repository.VerifyLogosAsync(
             config.ShowChannelLogos
-                ? resolved.Select(c => ZdfChannelCatalog.LogoFor(c.Definition, config.LogoTemplate, config.LogoUrlFor(c.Definition.Key), bundledLogo)).ToList()
+                ? resolved.Select(c => ZdfChannelCatalog.LogoFor(c.Definition, config.LogoTemplate, OverrideFor(c.Definition.Key), bundledLogo)).ToList()
                 : Array.Empty<string?>(),
             cancellationToken).ConfigureAwait(false);
 
         // Reduces "the catalogue's logo for this channel, if it is really there" to one call.
         string? PickLogo(ZdfChannelDefinition definition)
         {
-            var logo = ZdfChannelCatalog.LogoFor(definition, config.LogoTemplate, config.LogoUrlFor(definition.Key), bundledLogo);
+            var logo = ZdfChannelCatalog.LogoFor(definition, config.LogoTemplate, OverrideFor(definition.Key), bundledLogo);
             return logo is not null && usableLogos.Contains(logo) ? logo : null;
         }
+
+        string? OverrideFor(string key)
+            => logoOverrides.TryGetValue(key, out var url) ? url : null;
 
         var channels = new List<ChannelInfo>(resolved.Count);
         var number = 1;
@@ -139,6 +146,10 @@ public sealed class ZdfTunerHost : ITunerHost, IConfigurableTunerHost
                 ChannelType = ChannelType.TV,
                 ChannelGroup = definition.Group,
                 IsHD = definition.IsHd,
+
+                // Progressive unless the catalogue says otherwise - see ZdfChannelDefinition. The value a player
+                // acts on comes from probing the opened stream anyway; what this one decides is whether clients
+                // and the server's transcoder are told to expect fields before they can know.
 
                 // The channel's own logo, in whichever of the two fields describes it: a file this plugin
                 // ships itself goes in as a path (GuideManager.UpdateChannel prefers ImagePath and there is
@@ -287,7 +298,11 @@ public sealed class ZdfTunerHost : ITunerHost, IConfigurableTunerHost
                     Type = MediaStreamType.Video,
                     // -1: the position inside the container is not known before probing.
                     Index = -1,
-                    IsInterlaced = true
+
+                    // Was asserted for every channel regardless of what was being offered. These CDNs serve
+                    // progressive segments, so the claim was wrong in the direction that costs a viewer: a
+                    // client or ffmpeg told to deinterlace progressive video burns CPU on it and combs the result.
+                    IsInterlaced = channel.Definition.IsInterlaced
                 },
                 new MediaStream
                 {

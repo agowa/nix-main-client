@@ -196,14 +196,32 @@ public sealed class ChannelLogoAssets
                 if (!File.Exists(target) || new FileInfo(target).Length != resource.Length)
                 {
                     // Through a temporary name, so a crash mid-write cannot leave half a PNG where the server
-                    // is about to look for it.
-                    var temporary = target + ".tmp";
-                    using (var output = File.Create(temporary))
-                    {
-                        resource.CopyTo(output);
-                    }
+                    // is about to look for it. Unique per write rather than one shared ".tmp": unpacking runs on
+                    // demand from whichever code asks for a logo first, and two of those at once - the channel
+                    // list and the artwork repair that follows it - would otherwise be writing into the same
+                    // file and racing over who gets to rename it.
+                    var temporary = target + "." + Path.GetRandomFileName() + ".tmp";
 
-                    File.Move(temporary, target, true);
+                    try
+                    {
+                        using (var output = File.Create(temporary))
+                        {
+                            resource.CopyTo(output);
+                        }
+
+                        File.Move(temporary, target, true);
+                    }
+                    catch (Exception)
+                    {
+                        // A half-written temporary file is nobody's business but clutter, so take it out of the
+                        // way before the outer handler logs the failure.
+                        if (File.Exists(temporary))
+                        {
+                            File.Delete(temporary);
+                        }
+
+                        throw;
+                    }
                 }
 
                 paths[pair.Key] = target;
