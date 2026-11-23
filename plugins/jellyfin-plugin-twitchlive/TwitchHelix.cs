@@ -47,7 +47,11 @@ public sealed class TwitchHelix
 
     private DateTime _followsExpireUtc;
     private IReadOnlyList<string>? _cachedFollows;
+
     private string? _lastFollowError;
+
+    /// <summary>Which token <see cref="_cachedFollows"/> was read for, so a second account cannot be served its list.</summary>
+    private string? _cachedFollowToken;
 
     /// <summary>Initializes a new instance of the <see cref="TwitchHelix"/> class.</summary>
     public TwitchHelix(IHttpClientFactory httpClientFactory, ILogger<TwitchHelix> logger)
@@ -132,14 +136,23 @@ public sealed class TwitchHelix
     /// <param name="clientId">The client id the token was issued for; Twitch requires them to match.</param>
     /// <param name="maxCount">Upper bound on how many logins to return.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
+    /// <param name="refresh">
+    /// Ask Twitch even when a list is cached, and let a failure surface instead of answering with the last
+    /// good list. The guide import wants resilience; somebody pressing a button on the settings page wants
+    /// an answer about right now - see <see cref="TwitchAccountController"/>.
+    /// </param>
     /// <returns>The followed logins, normalised. An empty list means either nobody or no permission.</returns>
     public async Task<IReadOnlyList<string>> GetFollowedLoginsAsync(
         string token,
         string clientId,
         int maxCount,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool refresh = false)
     {
-        if (_cachedFollows is not null && DateTime.UtcNow < _followsExpireUtc)
+        // Cached per token rather than per server: the settings page can ask about an account that is not
+        // the one the guide import filled this cache with, and answering from that cache would look like a
+        // working button reporting the wrong account's follows.
+        if (!refresh && _cachedFollows is not null && IsCachedFor(token) && DateTime.UtcNow < _followsExpireUtc)
         {
             return _cachedFollows;
         }
@@ -238,6 +251,7 @@ public sealed class TwitchHelix
             while (!string.IsNullOrEmpty(cursor) && logins.Count < limit);
 
             _cachedFollows = logins;
+            _cachedFollowToken = token;
             _followsExpireUtc = DateTime.UtcNow + TimeSpan.FromMinutes(Math.Max(1, config.FollowCacheMinutes));
 
             if (_lastFollowError is not null)
@@ -263,18 +277,36 @@ public sealed class TwitchHelix
             // the difference between one slow refresh and a follow list that stays stale for half a day.
             _followsExpireUtc = DateTime.UtcNow
                                 + (ex is UpstreamRateLimitedException limited ? limited.Delay : FollowRetryAfterFailure);
+            // Asked directly, answered honestly: a button that shows the previous list after Twitch said
+            // no is how this feature would lie. The backoff above still applies to the guide import.
+            if (refresh)
+            {
+                throw;
+            }
+
             _logger.LogWarning(
                 "Twitch Live TV: could not read the follow list ({Error}); {Cached} channels from the last successful read are kept for {Minutes} minutes",
                 ex.Message,
-                _cachedFollows?.Count ?? 0,
+                IsCachedFor(token) ? _cachedFollows?.Count ?? 0 : 0,
                 FollowRetryAfterFailure.TotalMinutes);
 
-            return _cachedFollows ?? Array.Empty<string>();
+            return IsCachedFor(token) ? _cachedFollows! : Array.Empty<string>();
         }
     }
 
-    /// <summary>Asks id.twitch.tv whose token this is and what it may read.</summary>
-    private async Task<(string? UserId, string Login, HashSet<string> Scopes)> ValidateTokenAsync(
+    /// <summary>Whether the cached follow list belongs to this token.</summary>
+    private bool IsCachedFor(string token)
+        => string.Equals(_cachedFollowToken, token, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Asks id.twitch.tv whose token this is and what it may read.
+    /// </summary>
+    /// <remarks>
+    /// Also what the settings page asks through <see cref="TwitchAccountController"/>, so that the answer -
+    /// not the credential - is what travels back to the browser. Throws with a message written for whoever
+    /// typed the token, which that endpoint passes straight through.
+    /// </remarks>
+    public async Task<(string? UserId, string Login, HashSet<string> Scopes)> ValidateTokenAsync(
         string token,
         string clientId,
         CancellationToken cancellationToken)

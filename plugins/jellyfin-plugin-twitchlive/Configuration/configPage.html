@@ -45,7 +45,9 @@
                            placeholder="(none - everything works anonymously)" />
                     <div class="fieldDescription">
                         Stored in this plugin's XML file under the data directory and sent only to
-                        api.twitch.tv, id.twitch.tv, gql.twitch.tv and usher.ttvnw.net. Revoke it at
+                        api.twitch.tv, id.twitch.tv, gql.twitch.tv and usher.ttvnw.net - by the server, never
+                        by this page: <em>Check token</em> and <em>Add my follows</em> ask the plugin, so a
+                        stored token is not handed back to the browser to carry cross-origin. Revoke it at
                         <a href="https://www.twitch.tv/settings/connections" target="_blank" rel="noopener">twitch.tv/settings/connections</a>.
                         <!-- raised: the class the themes actually style. "button-minor" does not exist in
                              jellyfin-web, and these sit inside a fieldDescription paragraph, whose colour

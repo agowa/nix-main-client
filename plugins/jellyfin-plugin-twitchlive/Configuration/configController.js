@@ -29,9 +29,44 @@ const FALLBACK = {
     ShowChannelLogos: true
 };
 
-/** Twitch's own endpoints. Both answer cross-origin on purpose (they serve browser apps). */
-const TWITCH_VALIDATE_URL = "https://id.twitch.tv/oauth2/validate";
-const TWITCH_FOLLOWED_URL = "https://api.twitch.tv/helix/channels/followed";
+/**
+ * The plugin's own endpoints for the two account questions.
+ *
+ * They exist so that this page never talks to Twitch: asking id.twitch.tv or api.twitch.tv from here put a
+ * long-lived bearer credential into a cross-origin request started by dashboard code, visible to every
+ * extension and script in this document - and it only worked at all while Twitch kept answering
+ * cross-origin. See TwitchAccountController for the server side of this.
+ */
+function accountUrl(action) {
+    return ApiClient.getUrl("Plugins/" + PLUGIN_ID + "/" + action);
+}
+
+/**
+ * Asks the plugin to do something with the account token and returns its answer.
+ *
+ * The body carries a token only when somebody typed one; an empty body means "use what you have", which is
+ * how checking or importing stops needing the stored credential in the browser at all.
+ */
+async function askAccount(action, body) {
+    const response = await fetch(accountUrl(action), {
+        method: "POST",
+        headers: headers(true),
+        body: JSON.stringify(body || {})
+    });
+
+    if (!response.ok) {
+        let detail = "";
+        try {
+            detail = (await response.json()).Error || "";
+        } catch (ignored) {
+            // A refusal we could not read is still a refusal; the status line below says that much.
+        }
+
+        throw new Error(detail || ("the plugin answered HTTP " + response.status));
+    }
+
+    return response.json();
+}
 
 function headers(withBody) {
     const h = { "X-Emby-Token": ApiClient.accessToken() };
@@ -246,119 +281,70 @@ export default class TwitchLiveConfigPage {
         }
     }
 
-    /** The credential to act with: what was typed if that happened, otherwise what the server holds. */
-    currentToken() {
-        return this.tokenEdited ? (this.authToken.value || "").trim() : this.storedToken;
+    /** The typed token if there is one - otherwise nothing, and the server uses what it holds. */
+    typedToken() {
+        return this.tokenEdited ? (this.authToken.value || "").trim() : "";
     }
 
-    /** Asks Twitch whose token is in the field, without saving anything first. */
+    /** Asks the plugin whose token is in use, without saving anything first. */
     async checkToken() {
-        const token = this.currentToken();
-        if (!token) {
+        const typed = this.typedToken();
+        if (!typed && !this.storedToken) {
             this.status("No token to check - the plugin works anonymously without one.");
             return;
         }
 
-        this.status("Checking with Twitch...");
+        this.status(typed ? "Asking Twitch about the token you typed..." : "Asking Twitch about the stored token...");
 
         try {
-            const info = await this.validateToken(token);
-            const scopes = (info.scopes && info.scopes.length) ? info.scopes.join(", ") : "(none)";
+            const answer = await askAccount("ValidateToken", typed ? { Token: typed } : {});
+            const scopes = (answer.Scopes && answer.Scopes.length) ? answer.Scopes.join(", ") : "(none)";
             let note = "";
 
-            if (!info.scopes || info.scopes.indexOf("user:read:follows") === -1) {
+            if (!answer.Scopes || answer.Scopes.indexOf("user:read:follows") === -1) {
                 note = " Without user:read:follows the follow list stays unavailable.";
             }
 
-            this.status("Token is valid for '" + (info.login || "?") + "' (user id " + (info.user_id || "?")
+            this.status("Token is valid for '" + (answer.Login || "?") + "' (user id " + (answer.UserId || "?")
                 + "), scopes: " + scopes + "." + note);
         } catch (error) {
             this.status("Twitch refused this token: " + error.message, true);
         }
     }
 
-    /** Pulls the follow list of the token's account into the channel box. */
+    /** Asks the plugin for the follow list and puts it in the channel box. */
     async addFollows() {
-        const token = this.currentToken();
-        if (!token) {
+        const typed = this.typedToken();
+        if (!typed && !this.storedToken) {
             this.status("Add my follows needs an OAuth token above - Twitch only gives the list to the account that owns it.", true);
             return;
         }
 
-        this.status("Reading your follow list from Twitch...");
+        this.status("Reading the follow list from Twitch...");
 
         try {
-            const info = await this.validateToken(token);
-            const clientId = (this.clientId.value || "").trim() || FALLBACK.ClientId;
             const limit = Math.min(2000, Math.max(1, parseInt(this.followLimit.value, 10) || 200));
+            const answer = await askAccount("FollowedChannels", typed ? { Token: typed, Limit: limit } : { Limit: limit });
 
             const existing = (this.channels.value || "")
                 .split(/[\s,]+/)
                 .map((login) => login.trim().toLowerCase())
                 .filter((login) => login.length > 0);
 
-            let cursor = null;
             let added = 0;
-            let pages = 0;
-
-            do {
-                const params = new URLSearchParams({ user_id: info.user_id, first: "100" });
-                if (cursor) {
-                    params.set("after", cursor);
+            (answer.Logins || []).forEach((login) => {
+                if (login && existing.indexOf(login) === -1 && added < limit) {
+                    existing.push(login);
+                    added++;
                 }
-
-                const response = await fetch(TWITCH_FOLLOWED_URL + "?" + params.toString(), {
-                    headers: { Authorization: "Bearer " + token, "Client-Id": clientId }
-                });
-
-                if (!response.ok) {
-                    this.status("Twitch refused the follow list (HTTP " + response.status + ")"
-                        + (response.status === 403 ? " - the token needs the scope user:read:follows" : ""), true);
-                    return;
-                }
-
-                const body = await response.json();
-                (body.data || []).forEach((entry) => {
-                    const login = (entry.broadcaster_login || "").toLowerCase();
-                    if (login && existing.indexOf(login) === -1 && added < limit) {
-                        existing.push(login);
-                        added++;
-                    }
-                });
-
-                cursor = (body.pagination && body.pagination.cursor) || null;
-                pages++;
-            } while (cursor && added < limit && pages < 20);
+            });
 
             this.channels.value = existing.join("\n");
             this.status(added ? "Added " + added + " followed channel(s) to the box - press Save to keep them."
-                : "Nothing to add: every channel you follow is already in the list.");
+                : "Nothing to add: every channel in that list is already here.");
         } catch (error) {
             this.status("Could not read your follow list: " + error.message, true);
         }
-    }
-
-    /**
-     * Calls Twitch's own token validation endpoint from the browser.
-     *
-     * It is used rather than a round trip through the plugin because there is nothing to add for it:
-     * Twitch answers cross-origin requests on both id.twitch.tv and api.twitch.tv, so the page can ask
-     * directly and report exactly what Twitch said. Note what that costs: the credential travels in a request
-     * started by this page. That is why the field starts empty (see reveal()) - nothing leaves here unless
-     * somebody pressed Show or typed the token themselves. A plugin endpoint would remove that exposure
-     * entirely, and is where these two buttons belong if they ever matter enough for one.
-     */
-    async validateToken(token) {
-        const clientId = (this.clientId.value || "").trim() || FALLBACK.ClientId;
-        const response = await fetch(TWITCH_VALIDATE_URL, {
-            headers: { Authorization: "OAuth " + token, "Client-Id": clientId }
-        });
-
-        if (!response.ok) {
-            throw new Error("HTTP " + response.status + " - issue a fresh one at twitchtokengenerator.com or dev.twitch.tv");
-        }
-
-        return response.json();
     }
 
     /** Shows a line inside the page. The only status mechanism this page depends on. */

@@ -38,7 +38,9 @@ neither a restart nor a rebuild:
   too), plus logos, the schedule switch and horizon, cache sizes, the offline-channel switch, and the optional
   account token with its *Check token* and *Add my follows* buttons.
 * **REST API** - `GET /Plugins/acfb8b6e-f2ce-4615-800f-77c40ffd213d/Configuration` to read it, **POST** the same
-  URL to write it (Jellyfin implements only `[HttpPost("{pluginId}/Configuration")]`; a PUT is answered 405).
+  URL to write it (Jellyfin implements only `[HttpPost("{pluginId}/Configuration")]`; a PUT is answered 405). The
+  plugin adds `ValidateToken` and `FollowedChannels` under the same path - admin-only, see
+  [Signing in is optional, and what a token buys](#signing-in-is-optional-and-what-a-token-buys).
   Send the whole object back - the server replaces it, so a partial body blanks the fields you left out - and
   note that answers use PascalCase property names.
 * **Nix** - `services.jellyfinTwitch.channels`, which *seeds* the file on a fresh installation and leaves
@@ -157,11 +159,17 @@ adds exactly two things:
   `user:read:follows`. Follows are appended after the hand-picked logins rather than replacing them, so channel
   numbers do not move when someone unfollows, and imported channels carry a `followed` tag.
 
-The **Check token** button asks `id.twitch.tv/oauth2/validate` from the browser (that endpoint answers
-cross-origin), so you see whose token it is and which scopes it has before saving anything; **Add my follows**
-fills the channel box from your own list without storing the token anywhere new. A token with a missing scope
-says which one instead of failing later as an HTTP 403, and a failed read keeps the previous follow list rather
-than emptying the channel list.
+The **Check token** and **Add my follows** buttons do not talk to Twitch. They call two endpoints on the plugin
+itself - `POST /Plugins/acfb8b6e-f2ce-4615-800f-77c40ffd213d/ValidateToken` and `.../FollowedChannels`, both in
+`TwitchAccountController` - which ask Twitch with whatever token the server holds and send back only the answer.
+An empty request body means "the stored one", so a saved credential makes no return trip through the browser;
+a token that has been typed but not saved is the one case where it travels, from those keystrokes, over the same
+connection saving would use. Both endpoints carry `Policies.RequiresElevation`, the same policy Jellyfin puts on
+its own plugin-configuration controller, so they reach nobody who could not read the setting anyway. A token with
+a missing scope says which one instead of failing later as an HTTP 403; a rate limit comes back as a 429 saying
+how long to wait; and a failed read on the *guide import* path keeps the previous follow list rather than emptying
+the channel list - unlike a button press, which reports what Twitch said instead of showing you something stale.
+The cache is keyed on the token too, so asking about a second account cannot be answered with the first one's follows.
 
 Treat the setting like a password: it is stored in this plugin's XML file under the data directory (world-readable
 to anything that can read Jellyfin's config) and is sent only to `api.twitch.tv`, `id.twitch.tv`, `gql.twitch.tv`
