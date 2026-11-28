@@ -174,6 +174,7 @@
 
       makemkv
       redumper
+      sops
 
     ];
   };
